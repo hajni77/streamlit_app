@@ -4,7 +4,7 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 
 # Streamlit App Title
-st.title("Object & Room Input Form with 3D Visualization")
+st.title("Floorplan Review Tool")
 
 # Number Inputs
 x = st.number_input("Enter X coordinate:", min_value=0, value=0)
