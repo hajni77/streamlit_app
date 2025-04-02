@@ -6,19 +6,39 @@ from mpl_toolkits.mplot3d import Axes3D
 # Streamlit App Title
 st.title("Floorplan Review Tool")
 
-# Number Inputs
-x = st.number_input("Enter X coordinate:", min_value=0, value=0)
-y = st.number_input("Enter Y coordinate:", min_value=0, value=0)
-width = st.number_input("Enter Width:", min_value=1, value=50)
-height = st.number_input("Enter Height:", min_value=1, value=50)
+door_images = { 
+    "front" : "door_front.jpg",
+    "left" : "door_left.jpg",
+    "right" : "door_right.jpg",
+    "back" : "door_back.jpg", 
+}
 
-# Dropdown Menu for Object Selection
-objects = ["Car", "Person", "Tree", "Building", "Animal"]
-selected_object = st.selectbox("Select an Object:", objects)
 
-# Dropdown Menu for Room Selection
-rooms = ["Living Room", "Kitchen", "Bedroom", "Bathroom", "Garage"]
-selected_room = st.selectbox("Select a Room:", rooms)
+# Layout with Columns
+col1, col2 = st.columns([1, 1])  # Create two equal-width columns
+
+with col1:
+    # Number Inputs
+    x = st.number_input("Enter door distance from the corner (X):", min_value=0, value=0)
+    y = st.number_input("E:", min_value=0, value=0)
+    width = st.number_input("Enter Width:", min_value=1, value=75)
+    height = st.number_input("Enter Height:", min_value=1, value=200)
+    
+    door = ["Inward", "Outward"]
+    selected_room = st.selectbox("Door type:", door)
+
+    # Dropdown Menu for Object Selection
+    objects = ["Bathtub", "Sink", "Washing Machine", "Toilet", "Shower","Double Sink", "Cabinet" ]
+    selected_object = st.multiselect("Select Objects:", objects)
+
+    # Dropdown Menu for Room Selection
+    rooms = [ "Bathroom"]
+    selected_room = st.selectbox("Select a Room type:", rooms)
+
+with col2:
+    # Display Image Dynamically Based on Selection
+    image_path = door_images.get(selected_object, "default.jpg")
+    st.image(image_path, caption=f"Selected door position: {selected_object}", use_column_width=True)
 
 # Submit Button
 if st.button("Submit"):
