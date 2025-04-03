@@ -1,0 +1,26 @@
+name: Deploy to Firebase
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Decode Firebase credentials
+        run: |
+          echo ${{ secrets.FIREBASE_CREDENTIALS }} | base64 --decode > firebase_credentials.json
+
+      - name: Set up Firebase Admin SDK
+        run: |
+          pip install firebase-admin
+          
+      - name: Deploy App
+        run: |
+          # Initialize Firebase Admin SDK and deploy your app
+          python app.py
