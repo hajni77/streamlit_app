@@ -5,6 +5,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from matplotlib.widgets import Button
 import numpy as np
 from mpl_toolkits.mplot3d import axes3d 
+import matplotlib.patches as patches
 from utils import check_which_wall,check_distance,adjust_object_placement, check_distance_from_wall, convert_values, adjust_object_placement_pos, is_valid_placement
 # Initialize global variables for view angle adjustment
 current_elev = 30
@@ -16,7 +17,8 @@ object_colors = {
     "Shower": "red",
     "Bathtub": "purple",
     "Washing Machine": "orange",
-    "Double Sink": "brown"
+    "Double Sink": "brown",
+    "Cabinet": "pink",
 }
 def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shadow=75):
     # Draw windows and doors
@@ -141,7 +143,7 @@ def visualize_placed_objects(placed_objects, room_width, room_depth, ax):
         z = 0 # currently all objects are on the floor
 
         front, left,right,back = shadow
-        print("shadows: ", shadow)
+
         
         conv_x , conv_y, conv_w, conv_d,  conv_shadow_front, conv_shadow_left, conv_shadow_right, conv_shadow_back = convert_values((x, y, w, d), shadow, check_which_wall((x, y, w, d), room_width, room_depth))
         
@@ -149,10 +151,7 @@ def visualize_placed_objects(placed_objects, room_width, room_depth, ax):
         shadow_y = conv_y - conv_shadow_left
         shadow_w = conv_w + conv_shadow_left + conv_shadow_right
         shadow_d = conv_d + conv_shadow_back + conv_shadow_front
-        print("shadows: ", shadow)
-        print (shadow_x, shadow_y, shadow_w, shadow_d)
-        print(x, y, w, d)
-        print(check_which_wall((x, y, w, d), room_width, room_depth))
+
         
         # crop shadow if bigger than room
         if shadow_x < 0:
@@ -228,4 +227,74 @@ def visualize_room_with_shadows_3d(bathroom_size, placed_objects, windows_doors)
     ax.view_init(elev=current_elev, azim=current_azim)
 
     
-    plt.show()
+    # plt.show()
+    return fig
+
+
+
+
+def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
+    
+    room_width , room_depth, = bathroom_size
+    fig, ax = plt.subplots(figsize=(8, 6))
+
+    # Draw the room boundary
+    ax.set_ylim(0, room_width)
+    ax.set_xlim(0, room_depth)
+    ax.set_xticks(range(0, room_depth + 1, 10))
+    ax.set_yticks(range(0, room_width + 1, 10))
+    ax.grid(True, linestyle="--", alpha=0.3)
+    ax.set_title("Floor Plan")
+    ax.invert_yaxis()
+    # Draw walls
+    ax.plot([0, room_depth], [0, 0], "k-", linewidth=3)  # Bottom wall
+    ax.plot([0, room_depth], [room_width, room_width], "k-", linewidth=3)  # Top wall
+    ax.plot([0, 0], [0, room_width], "k-", linewidth=3)  # Left wall
+    ax.plot([room_depth, room_depth], [0, room_width], "k-", linewidth=3)  # Right wall
+    for door in doors:
+        name, selected_door_type, x, y, door_width, door_height, shadow = door
+        shadow = door_width
+        alpha = 0.3
+        name = "Outward Door"
+        if indoor == "Inward":
+            alpha = 0.9
+            name = "Inward Door"
+        # draw line in place of door
+        if selected_door_type == "front" :
+
+            obj_shadow = patches.Rectangle((y, x), door_width, shadow, edgecolor="gray", facecolor="gray", alpha=alpha)
+            ax.add_patch(obj_shadow)
+            ax.text(y + door_width / 2, x + shadow / 2, name, ha="center", va="center", fontsize=10, fontweight="bold")
+        elif selected_door_type == "back":
+
+            obj_shadow = patches.Rectangle((y,room_width-shadow), door_width, shadow, edgecolor="gray", facecolor="gray", alpha=alpha)
+            ax.add_patch(obj_shadow)
+            ax.text(y + door_width / 2, room_width - shadow + door_width / 2, name, ha="center", va="center", fontsize=10, fontweight="bold")
+        elif selected_door_type == "left":
+
+            obj_shadow = patches.Rectangle((0, x), shadow, door_width, edgecolor="gray", facecolor="gray", alpha=alpha)
+            ax.add_patch(obj_shadow)
+            ax.text(0 + shadow / 2, x + door_width / 2, name, ha="center", va="center", fontsize=10, fontweight="bold")
+        elif selected_door_type == "right":
+
+            obj_shadow = patches.Rectangle((room_depth-shadow,x ), shadow, door_width, edgecolor="gray", facecolor="gray", alpha=alpha)
+            ax.add_patch(obj_shadow)
+            ax.text(room_depth - shadow + door_width / 2, x + door_width / 2, name, ha="center", va="center", fontsize=10, fontweight="bold")
+        
+        
+    # Draw windows
+        
+    # Draw objects
+    for obj in objects:
+        x,y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
+        conv_x , conv_y, conv_w, conv_d,  conv_shadow_front, conv_shadow_left, conv_shadow_right, conv_shadow_back = convert_values((x, y, width, depth), shadow, check_which_wall((x, y, width, depth), room_width, room_depth))
+        shadow_x = conv_x - conv_shadow_front
+        shadow_y = conv_y - conv_shadow_left
+        shadow_w = conv_w + conv_shadow_left + conv_shadow_right
+        shadow_d = conv_d + conv_shadow_back + conv_shadow_front
+        obj_rect = patches.Rectangle((conv_y, conv_x), conv_w, conv_d, edgecolor="blue", facecolor="lightblue", alpha=0.7)
+        obj_shadow = patches.Rectangle((shadow_y, shadow_x), shadow_w, shadow_d, edgecolor="gray", facecolor="lightgray", alpha=0.5)
+        ax.add_patch(obj_rect)
+        ax.add_patch(obj_shadow)
+        ax.text(conv_y + conv_w/2, conv_x + conv_d/2, name, ha="center", va="center", fontsize=10, fontweight="bold")
+    return fig

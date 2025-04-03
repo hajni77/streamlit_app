@@ -1,6 +1,6 @@
 
 import random
-from generate_room import OBJECT_TYPES
+
 # check which wall is the object is on
 def check_which_wall(new_rect, room_width, room_depth):
     x,y,width,depth = new_rect
@@ -165,7 +165,7 @@ def check_valid_room(placed_obj):
     print("No sink in the room")
     return False
 
-def sort_objects_by_size(object_list):
+def sort_objects_by_size(object_list, OBJECT_TYPES):
     """Sort objects by their maximum possible area (largest first)."""
     return sorted(object_list, key=lambda obj: OBJECT_TYPES[obj]["size_range"][1] * OBJECT_TYPES[obj]["size_range"][3], reverse=True)
 

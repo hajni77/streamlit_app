@@ -1,5 +1,5 @@
 from utils import check_which_wall,check_distance,adjust_object_placement, check_distance_from_wall, convert_values, adjust_object_placement_pos, is_valid_placement
-from generate_room import OBJECT_TYPES
+
 
 def optimization(placed_obj, room_sizes):
     room_width, room_depth = room_sizes
