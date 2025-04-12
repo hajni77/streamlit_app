@@ -9,7 +9,7 @@ import json
 import firebase_admin
 from firebase_admin import credentials, db
 
-cred = credentials.Certificate("firebase_credentials.json") 
+# cred = credentials.Certificate("firebase_credentials.json") 
 
 import psycopg2
 from dotenv import load_dotenv
