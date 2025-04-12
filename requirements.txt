@@ -4,4 +4,4 @@ pandas
 matplotlib
 pydrive
 firebase-admin
-psycopg2
+psycopg2-binary
