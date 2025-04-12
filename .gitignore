@@ -1,3 +1,4 @@
 firebase_credentials.json
 .streamlit
 .env
+.__pycache__

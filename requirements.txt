@@ -4,3 +4,5 @@ pandas
 matplotlib
 pydrive
 firebase-admin
+psycopg2
+python-dotenv
