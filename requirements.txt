@@ -5,3 +5,4 @@ matplotlib
 pydrive
 firebase-admin
 psycopg2-binary
+python-dotenv
