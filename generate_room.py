@@ -229,3 +229,4 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
 
 
 # TODO : optimize 
+# TODO: WC not placed opposite to the door

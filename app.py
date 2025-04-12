@@ -10,64 +10,107 @@ import firebase_admin
 from firebase_admin import credentials, db
 
 cred = credentials.Certificate("firebase_credentials.json") 
-firebase_admin.initialize_app(cred)
-firebase_admin.initialize_app(cred, {
-    'databaseURL': "https://streamlit-6a72e-default-rtdb.europe-west1.firebasedatabase.app"
-})
+
+import psycopg2
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env
+load_dotenv()
+
+# Fetch variables
+USER = os.getenv("user")
+PASSWORD = os.getenv("password")
+HOST = os.getenv("host")
+PORT = os.getenv("port")
+DBNAME = os.getenv("dbname")
+
+# Connect to the database
+try:
+    connection = psycopg2.connect(
+        user=USER,
+        password=PASSWORD,
+        host=HOST,
+        port=PORT,
+        dbname=DBNAME
+    )
+    print("Connection successful!")
+    
+    # Create a cursor to execute SQL queries
+    cursor = connection.cursor()
+    
+    # Example query
+    cursor.execute("SELECT NOW();")
+    result = cursor.fetchone()
+    print("Current Time:", result)
+
+    # Close the cursor and connection
+    cursor.close()
+    connection.close()
+    print("Connection closed.")
+
+except Exception as e:
+    print(f"Failed to connect: {e}")
 
 # Function to Save Data to Firebase
 def save_data(room_sizes, positions, doors, review):
-    ref = db.reference("/floorplans")  # Store all floorplans here
+    try:
+        ref = db.reference("/floorplans")  # Store all floorplans here
 
-    # Save room sizes
-    width, depth = room_sizes
-    room_data = {
-        "room_width": width,
-        "room_depth": depth
-    }
-    room_ref = ref.push(room_data)  # Create a new floorplan entry
-
-    # Save doors under the floorplan
-    doors_ref = room_ref.child("doors")
-    for door in doors:
-        door_name, door_type, x, y, door_width, door_height = door
-        door_data = {
-            "door_name": door_name,
-            "door_type": door_type,
-            "x": x,
-            "y": y,
-            "door_width": door_width,
-            "door_height": door_height
+        # Save room sizes
+        width, depth = room_sizes
+        room_data = {
+            "room_width": width,
+            "room_depth": depth
         }
-        doors_ref.push(door_data)  # Store doors separately
+        room_ref = ref.push(room_data)  # Create a new floorplan entry
 
-    # Save objects under the floorplan
-    objects_ref = room_ref.child("objects")
-    for obj in positions:
-        x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
-        object_data = {
-            "object": name,
-            "x": x,
-            "y": y,
-            "width": width,
-            "depth": depth,
-            "height": height,
-            "shadow": shadow,
-            "must_be_corner": must_be_corner,
-            "must_be_against_wall": must_be_against_wall
-        }
-        objects_ref.push(object_data)  # Store objects separately
-    objects_ref = room_ref.child("review")
-    review_data = {
-        "review": review
-    }
-    objects_ref.push(review_data)  # Store review separately
-    print("✅ Data saved successfully!")   
-    
+        # Save doors under the floorplan
+        doors_ref = room_ref.child("doors")
+        for door in doors:
+            door_name, door_type, x, y, door_width, door_height = door
+            door_data = {
+                "door_name": door_name,
+                "door_type": door_type,
+                "x": x,
+                "y": y,
+                "door_width": door_width,
+                "door_height": door_height
+            }
+            doors_ref.push(door_data)  # Store doors separately
+
+        # Save objects under the floorplan
+        objects_ref = room_ref.child("objects")
+        
+        for obj in positions:
+            x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
+            object_data = {
+                "object": name,
+                "x": x,
+                "y": y,
+                "width": width,
+                "depth": depth,
+                "height": height,
+                "shadow": shadow,
+                "must_be_corner": must_be_corner,
+                "must_be_against_wall": must_be_against_wall
+            }
+            objects_ref.push(object_data)  # Store objects separately
+
+        # Save review under the floorplan
+        #review_ref = room_ref.child("review")
+        #review_data = {
+        #    "review": review
+        #}
+        #review_ref.push(review_data)  # Store review separately
+
+        print("✅ Data saved successfully!")
+    except Exception as e:
+        print(f"❌ Error saving data: {str(e)}")
 
 
-# Example Usage
-save_data("user_123", "Living Room", "Chair", 100, 200, 50, 60)
+
+
 OBJECT_TYPES = []
 with open('object_types.json') as f:
     OBJECT_TYPES = json.load(f)
@@ -138,6 +181,7 @@ with col2:
     # Display Image Dynamically Based on Selection
     image_path = door_images.get(selected_door_type, "default.png")
     st.image(image_path, caption=f"Selected door position: {selected_door_type}", use_column_width=True)
+windows_doors = []
 
 positions = []
 # Generate Button for 3D Visualization
@@ -158,7 +202,7 @@ if st.button("Generate 3D Plot"):
     if isTrue == True:
         st.success("The room is valid.")
     else:
-        st.success("The room is invalid.")
+        st.error("The room is invalid.")
     # Show the plot in Streamlit
     st.pyplot(fig)
     fig2 = draw_2d_floorplan(bathroom_size, positions, windows_doors, selected_door_way)

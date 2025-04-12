@@ -52,9 +52,9 @@
     "toilet": {
       "name": "Toilet",
       "must_be_corner": false,
-      "shadow_space": [60,15,15,0],
-      "size_range": [75, 90, 60, 70, 40, 50],
-      "optimal_size": [75, 65, 40],
+      "shadow_space": [60,0,0,0],
+      "size_range": [90, 90, 70, 70, 40, 50],
+      "optimal_size": [90, 70, 40],
       "must_be_against_wall": true,
       "priority": 3
     },
