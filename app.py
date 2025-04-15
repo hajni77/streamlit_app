@@ -240,7 +240,6 @@ else:
         
     
     elif st.session_state.fig and st.session_state.fig2:
-        st.success("The room is valid.")
         st.pyplot(st.session_state.fig)
         st.pyplot(st.session_state.fig2)
 
