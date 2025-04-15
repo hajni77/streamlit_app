@@ -8,105 +8,116 @@ from utils import check_valid_room
 import json
 import firebase_admin
 from firebase_admin import credentials, db
+from authentication import auth_section, protected_route
 
 # cred = credentials.Certificate("firebase_credentials.json") 
 
 import psycopg2
 from dotenv import load_dotenv
 import os
-
+from st_supabase_connection import SupabaseConnection
+from supabase import create_client, Client
 # Load environment variables from .env
 load_dotenv()
 
-# Fetch variables
-USER = os.getenv("user")
-PASSWORD = os.getenv("password")
-HOST = os.getenv("host")
-PORT = os.getenv("port")
-DBNAME = os.getenv("dbname")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+import streamlit as st
+from st_supabase_connection import SupabaseConnection
+
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Connect to the database
 try:
-    connection = psycopg2.connect(
-        user=USER,
-        password=PASSWORD,
-        host=HOST,
-        port=PORT,
-        dbname=DBNAME
-    )
+    # Initialize connection.
+    connection = st.connection("supabase",type=SupabaseConnection)
+    # Example: Query data
+    response = connection.table("reviews").select("*").execute()
+    data = response.data
     print("Connection successful!")
     
-    # Create a cursor to execute SQL queries
-    cursor = connection.cursor()
-    
-    # Example query
-    cursor.execute("SELECT NOW();")
-    result = cursor.fetchone()
-    print("Current Time:", result)
-
-    # Close the cursor and connection
-    cursor.close()
-    connection.close()
-    print("Connection closed.")
-
 except Exception as e:
     print(f"Failed to connect: {e}")
 
+# authentication
+# Get token and store in session_state
+access_token = auth_section(supabase)
+if access_token:
+    st.session_state['access_token'] = access_token
+
+
+
+# Helper: get user-bound supabase client
+from supabase import create_client, Client
+
+def get_user_supabase():
+    token = st.session_state.get('access_token')
+    if token:
+        return create_client(st.secrets['SUPABASE_URL'], token)
+    return supabase  # fallbottom to anon/service
+
 # Function to Save Data to Firebase
-def save_data(room_sizes, positions, doors, review):
+def save_data(room_sizes, positions, doors, review, is_enough_path, space, overall):
+    if not st.session_state.auth.get('user'):
+        st.error("Please sign in to submit reviews")
+        return
     try:
-        ref = db.reference("/floorplans")  # Store all floorplans here
+        objects = []
+        objects_positions = []
+        for position in positions:
+            print(position)
+            if isinstance(position, (list, tuple)) and len(position) >= 8:
+                objects.append({
+                    "name": position[5],
+                    "width": position[2],
+                    "depth": position[3],
+                    "height": position[4]
+                })
+                objects_positions.append({
+                    "x": position[0],
+                    "y": position[1],
+                    "must_be_corner": position[6],
+                    "against_wall": position[7]
+                })
 
-        # Save room sizes
-        width, depth = room_sizes
-        room_data = {
-            "room_width": width,
-            "room_depth": depth
+        # Convert input data to match table schema
+        review_data = {
+            "room_width": int(room_sizes[0]),
+            "room_depth": int(room_sizes[1]),
+            "room_height": int(room_sizes[2]),  # Assuming 3rd value exists
+            "objects": objects,
+            "objects_positions": objects_positions,
+            "review": {
+                "text": review,
+            },
+            "doors_windows": [{
+                "type": door[1],
+                "position": {"x": door[2], "y": door[3]},
+                "dimensions": {"width": door[4], "height": door[5]}
+            } for door in doors],
+            "user_id": st.session_state.user.id
         }
-        room_ref = ref.push(room_data)  # Create a new floorplan entry
 
-        # Save doors under the floorplan
-        doors_ref = room_ref.child("doors")
-        for door in doors:
-            door_name, door_type, x, y, door_width, door_height = door
-            door_data = {
-                "door_name": door_name,
-                "door_type": door_type,
-                "x": x,
-                "y": y,
-                "door_width": door_width,
-                "door_height": door_height
-            }
-            doors_ref.push(door_data)  # Store doors separately
+        # Add optional fields if available
+        if is_enough_path and space and overall:
+            review_data.update({
+                "is_enough_path": is_enough_path,
+                "space": space,
+                "overall": overall
+            })
+        # Insert into Supabase
+        response = supabase.table('reviews').insert(review_data).execute()
+        if response.data:
+            st.success("Review saved successfully!")
+            return None
+        else:
+            st.error("Failed to save review")
+            return None
 
-        # Save objects under the floorplan
-        objects_ref = room_ref.child("objects")
-        
-        for obj in positions:
-            x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
-            object_data = {
-                "object": name,
-                "x": x,
-                "y": y,
-                "width": width,
-                "depth": depth,
-                "height": height,
-                "shadow": shadow,
-                "must_be_corner": must_be_corner,
-                "must_be_against_wall": must_be_against_wall
-            }
-            objects_ref.push(object_data)  # Store objects separately
-
-        # Save review under the floorplan
-        #review_ref = room_ref.child("review")
-        #review_data = {
-        #    "review": review
-        #}
-        #review_ref.push(review_data)  # Store review separately
-
-        print("✅ Data saved successfully!")
     except Exception as e:
-        print(f"❌ Error saving data: {str(e)}")
+        st.error(f"Error saving review: {str(e)}")
+        return None
 
 
 
@@ -115,122 +126,139 @@ OBJECT_TYPES = []
 with open('object_types.json') as f:
     OBJECT_TYPES = json.load(f)
     
-# get root path
-# Streamlit App Title
-st.title("Floorplan Generator and Visualizer")
-st.write("This app generates a floorplan and visualizes it in 3D.")
-
-door_images = { 
-    "front" : "front.png",
-    "left" : "left.png",
-    "right" : "right.png",
-    "back" : "back.png", 
-}
-
-objects_map = { 
-    "Bathtub": "bathtub",
-    "Sink": "sink",
-    "Washing Machine": "washing_machine",
-    "Toilet": "toilet",
-    "Shower": "shower",
-    "Double Sink": "double_sink",
-    "Cabinet": "cabinet",
-}
-
-
-# Layout with Columns
-col1, col2 = st.columns([1, 1])  # Create two equal-width columns
-
-with col1:    
-    # Number Inputs
-    room_width = st.number_input("Enter room width :", min_value=50, value=200)
-    room_depth = st.number_input("Enter room depth :", min_value=50, value=200)
-    # Dropdown Menu for Object Selection
-    objects = ["Bathtub", "Sink", "Washing Machine", "Toilet", "Shower","Double Sink", "Cabinet" ]
-    selected_object = st.multiselect("Select Objects:", objects)
-
-    # Dropdown Menu for Room Selection
-    rooms = [ "Bathroom"]
-    selected_room = st.selectbox("Select a Room type:", rooms)
-
-    door_type= ["front", "back", "right","left"]
-    # add gap between the two columns
-    st.write("")
-    st.write("")
-    st.write("")
-    st.write("")
-    st.write("")
+if not st.session_state.auth.get('user'):
+    st.warning("Please sign in to access this page")
     
-    # Number Inputs
-    x = st.number_input("Enter door distance from the corner (X):", min_value=1, value=1)
-    y = 0
-    door_type= ["front", "back", "right","left"]
-    selected_door_type = st.selectbox("Select door type:", door_type)
-    door_width = st.number_input("Enter Door Width:", min_value=1, value=75)
-    door_height = st.number_input("Enter Door Height:", min_value=1, value=200)
+else:
+    # get root path
+    # Streamlit App Title
+    st.title("Floorplan Generator and Visualizer")
+    st.write("This app generates a floorplan and visualizes it in 3D.")
+
+    door_images = { 
+        "top" : "front.png",
+        "left" : "left.png",
+        "right" : "right.png",
+        "bottom" : "back.png", 
+    }
+
+    objects_map = { 
+        "Bathtub": "bathtub",
+        "Sink": "sink",
+        "Washing Machine": "washing_machine",
+        "Toilet": "toilet",
+        "Shower": "shower",
+        "Double Sink": "double_sink",
+        "Cabinet": "cabinet",
+    }
+
+
+    # Layout with Columns
+    col1, col2 = st.columns([1, 1])  # Create two equal-width columns
+
+    with col1:    
+        # Number Inputs
+        room_width = st.number_input("Enter room width :", min_value=50, value=200)
+        room_depth = st.number_input("Enter room depth :", min_value=50, value=200)
+        room_height = st.number_input("Enter room height :", min_value=100, value=280)
+
+        # Dropdown Menu for Object Selection
+        objects = ["Bathtub", "Sink", "Washing Machine", "Toilet", "Shower","Double Sink", "Cabinet" ]
+        selected_object = st.multiselect("Select Objects:", objects)
+
+        # Dropdown Menu for Room Selection
+        rooms = [ "Bathroom"]
+        selected_room = st.selectbox("Select a Room type:", rooms)
+
+        door_type= ["top", "bottom", "right","left"]
+        # add gap between the two columns
+        st.write("")
+        st.write("")
+        st.write("")
+        st.write("")
+        st.write("")
+        
+        # Number Inputs
+        x = st.number_input("Enter door distance from the corner (X):", min_value=1, value=50)
+        y = 0
+        door_type= ["top", "bottom", "right","left"]
+        selected_door_type = st.selectbox("Select door type:", door_type)
+        door_width = st.number_input("Enter Door Width:", min_value=1, value=75)
+        door_height = st.number_input("Enter Door Height:", min_value=1, value=200)
+        
+        door = ["Inward", "Outward"]
+        selected_door_way = st.selectbox("Door type:", door)
+
+
+
+    with col2:
+        
+        image_path = "room.png"
+        st.image(image_path, caption=f"Door sizes ", use_column_width=True)
+        # Display Image Dynamically Based on Selection
+        image_path = door_images.get(selected_door_type, "default.png")
+        st.image(image_path, caption=f"Selected door position: {selected_door_type}", use_column_width=True)
+    windows_doors = []
+    isTrue = False
+
+    positions = []
+    # Generate Button for 3D Visualization
+    if st.button("Generate 3D Plot"):
+        if selected_door_type == "top":
+            y = x
+            x = 0
+        if selected_door_type == "bottom":
+            y = x
+            x = room_width
+        if selected_door_type == "right":
+            y = room_depth 
+        selected_objects = [objects_map[obj] for obj in selected_object]
+   
+        windows_doors = [
+            ("door1", selected_door_type, x, y, door_width, door_height, 0),
+        ]
+        bathroom_size = ( room_width,room_depth)  # Width, Depth, Height
+
+        positions = fit_objects_in_room(bathroom_size, selected_objects, windows_doors, OBJECT_TYPES,attempt=10000)
+        fig = visualize_room_with_shadows_3d(bathroom_size, positions, windows_doors)
+        isTrue = check_valid_room( positions)
+        if isTrue == True:
+            st.success("The room is valid.")
+        else:
+            st.error("The room is invalid.")
+        # Show the plot in Streamlit
+        st.pyplot(fig)
+        fig2 = draw_2d_floorplan(bathroom_size, positions, windows_doors, selected_door_way)
+        st.pyplot(fig2)
+        st.session_state.positions = positions
+        st.session_state.windows_doors = windows_doors
+        st.session_state.fig = fig
+        st.session_state.fig2 = fig2
+        st.session_state.isTrue = isTrue
+        st.session_state.positions = positions
+        st.session_state.windows_doors = windows_doors
+        
     
-    door = ["Inward", "Outward"]
-    selected_door_way = st.selectbox("Door type:", door)
-
-
-
-with col2:
-    
-    image_path = "room.png"
-    st.image(image_path, caption=f"Door sizes ", use_column_width=True)
-    # Display Image Dynamically Based on Selection
-    image_path = door_images.get(selected_door_type, "default.png")
-    st.image(image_path, caption=f"Selected door position: {selected_door_type}", use_column_width=True)
-windows_doors = []
-
-positions = []
-# Generate Button for 3D Visualization
-if st.button("Generate 3D Plot"):
-    if selected_door_type == "front" or selected_door_type == "back":
-        y = x
-        x = 0
-    selected_objects = [objects_map[obj] for obj in selected_object]
-
-    windows_doors = [
-        ("door1", selected_door_type, x, y, door_width, door_height, 0),
-    ]
-    bathroom_size = ( room_width,room_depth)  # Width, Depth, Height
-
-    positions = fit_objects_in_room(bathroom_size, selected_objects, windows_doors, OBJECT_TYPES,attempt=10000)
-    fig = visualize_room_with_shadows_3d(bathroom_size, positions, windows_doors)
-    isTrue = check_valid_room( positions)
-    if isTrue == True:
+    elif st.session_state.fig and st.session_state.fig2:
         st.success("The room is valid.")
-    else:
-        st.error("The room is invalid.")
-    # Show the plot in Streamlit
-    st.pyplot(fig)
-    fig2 = draw_2d_floorplan(bathroom_size, positions, windows_doors, selected_door_way)
-    st.pyplot(fig2)
+        st.pyplot(st.session_state.fig)
+        st.pyplot(st.session_state.fig2)
 
 
 
-# add string to show the objects position in the room
-st.write("Objects position in the room:")
-
-for x,y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow in positions:
-    st.write(f"Object: {name}")
-    st.write(f"Position: {x}, {y}, ")
-    st.write(f"Size: {width}, {depth}, ")
-    st.write(f"Height: {height} ,")
-    st.write(f"Must be corner: {must_be_corner}, Must be against wall: {must_be_against_wall}")
 
 
-
-# add a section which is enable to write a review about the app
-st.write("Write your review about the generated room:")
-review = st.text_area("Review", "Write your review here...")
-if st.button("Submit Review"):
-    save_data((room_width, room_depth), positions, windows_doors, review)
-    st.success("Thank you for your review, all data saved to database!")
-    
+    is_enough_path = st.checkbox("Is there enough pathway space?")
+    space = st.slider("Space Utilization", 0,10,5)
+    overall = st.slider("Overall Satisfaction", 0,10,5)
+    st.write("Write your review about the generated room:")
+    review = st.text_area("Review", "Write your review here...")
+    if st.button("Submit Review"):
+        save_data((room_width, room_depth, room_height), st.session_state.positions, st.session_state.windows_doors, review, is_enough_path, space, overall)
+        st.success("Thank you for your review, all data saved to database!")
+        
 
 
     
-# TODO Back door cant work
-# TODO Too much conversion of the objects
+# TODO bottom door cant work
+# TODO Too much conversion of the objectss

@@ -8,13 +8,13 @@ import matplotlib.patches as patches
 import random
 from optimization import optimize_object
 
-from utils import check_valid_room,check_distance_from_wall, check_which_wall, check_distance, adjust_object_placement_pos, convert_values, adjust_object_placement, is_valid_placement, get_available_walls, windows_doors_overlap, check_overlap, sort_objects_by_size, generate_random_size,  windows_doors_overlap
+from utils import check_valid_room,check_distance_from_wall, check_which_wall, check_distance, adjust_object_placement_pos, convert_values, adjust_object_placement, is_valid_placement, get_available_walls, windows_doors_overlap, check_overlap, sort_objects_by_size, generate_random_size,  windows_doors_overlap, check_which_wall_for_door
 class ObjectType:
     """Defines the constraints for different object types."""
     def __init__(self, name, must_be_corner, shadow_space, size_range, must_be_against_wall):
         self.name = name
         self.must_be_corner = must_be_corner
-        self.shadow_space = shadow_space  # How much space the shadow takes up on the front and sides
+        self.shadow_space = shadow_space  # How much space the shadow takes up on the top and sides
         self.size_range = size_range  # (min_width, max_width, min_depth,max_depth,min_height, max_height)
         self.optimal_size = size_range  # (optimal_width, optimal_depth, optimal_height)
         self.must_be_against_wall = must_be_against_wall
@@ -29,8 +29,9 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
     door_walls = []
     for i in windows_doors:
         if "door" in i[0].lower():
-            wall = check_which_wall((i[2],i[3],i[4],i[5]), room_width, room_depth)
+            wall = check_which_wall_for_door((i[2],i[3],i[4],i[5]), room_width, room_depth)
             door_walls.append(wall)
+
     # Sort objects by size (largest first)
     sorted_objects = sort_objects_by_size(object_list, OBJECT_TYPES)
 
@@ -103,8 +104,7 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                     x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions)
                     object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
                     placed_objects.append((x, y, obj_width, obj_depth, shadow ))
-                    print("optimal size was used")
-                    print(obj_def['name'])
+
                     break
             if obj_type == "toilet":
                 toilet_placed = is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow,room_width, room_depth)
@@ -116,15 +116,12 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                         x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions )
                         object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
                         placed_objects.append((x, y, obj_width, obj_depth, shadow ))
-                        print("optimal size was used")
-                        print(obj_def['name'])
                         break
                     
             #if obj_type == "bathtub":
                 
                 #dist,rect_smaller = check_distance(conv_rect, conv_placed_obj)
                 
-        print(f"  was placed {wall_counts} times.")
         if not placed:
             orig_obj_width, orig_obj_depth,orig_obj_height = generate_random_size(obj_def)
            
@@ -191,8 +188,7 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                         # x, y, obj_width, obj_depth = adjust_object_placement((x, y, obj_width, obj_depth),shadow, room_width, room_depth, placed_objects,min_space=30)
                         object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
                         placed_objects.append((x, y, obj_width, obj_depth, shadow ))
-                        print("not optimal size was used")
-                        print(obj_def['name'])
+
                         
                         break
                 if obj_type == "toilet":
@@ -206,8 +202,7 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                             x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions )
                             object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
                             placed_objects.append((x, y, obj_width, obj_depth, shadow ))
-                            print("not optimal size was used")
-                            print(obj_def['name'])
+
                             break
                     
 

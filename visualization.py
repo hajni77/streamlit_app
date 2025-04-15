@@ -26,7 +26,7 @@ def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shado
         id_, wall, x, y,  width,height, parapet = item
         
         # Calculate vertices based on wall placement
-        if wall == "front":
+        if wall == "top":
             vertices = [
                 [0, y, parapet],
                 [0, y + width, parapet],
@@ -49,7 +49,7 @@ def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shado
                 [door_shadow, y, parapet + height],
                 ]
         
-        elif wall == "back":
+        elif wall == "bottom":
             vertices = [
                 [room_width, y, parapet],
                 [room_width, y + width, parapet],
@@ -124,9 +124,9 @@ def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shado
             faces = [
                 shadow_vertices[0:4],  # Bottom face
                 shadow_vertices[4:8],  # Top face
-                [shadow_vertices[i] for i in [0, 1, 5, 4]],  # Front face
+                [shadow_vertices[i] for i in [0, 1, 5, 4]],  # top face
                 [shadow_vertices[i] for i in [1, 2, 6, 5]],  # Right face
-                [shadow_vertices[i] for i in [2, 3, 7, 6]],  # Back face
+                [shadow_vertices[i] for i in [2, 3, 7, 6]],  # bottom face
                 [shadow_vertices[i] for i in [3, 0, 4, 7]],  # Left face
             ]
             shadow = Poly3DCollection(faces, color='grey', alpha=0.3, edgecolor='none')
@@ -142,15 +142,15 @@ def visualize_placed_objects(placed_objects, room_width, room_depth, ax):
     for x, y,  w, d, h, name, must_be_corner, must_be_wall, shadow in placed_objects:
         z = 0 # currently all objects are on the floor
 
-        front, left,right,back = shadow
+        top, left,right,bottom = shadow
 
         
-        conv_x , conv_y, conv_w, conv_d,  conv_shadow_front, conv_shadow_left, conv_shadow_right, conv_shadow_back = convert_values((x, y, w, d), shadow, check_which_wall((x, y, w, d), room_width, room_depth))
+        conv_x , conv_y, conv_w, conv_d,  conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x, y, w, d), shadow, check_which_wall((x, y, w, d), room_width, room_depth))
         
-        shadow_x = conv_x - conv_shadow_front
+        shadow_x = conv_x - conv_shadow_top
         shadow_y = conv_y - conv_shadow_left
         shadow_w = conv_w + conv_shadow_left + conv_shadow_right
-        shadow_d = conv_d + conv_shadow_back + conv_shadow_front
+        shadow_d = conv_d + conv_shadow_bottom + conv_shadow_top
 
         
         # crop shadow if bigger than room
@@ -180,8 +180,8 @@ def visualize_placed_objects(placed_objects, room_width, room_depth, ax):
         faces = [
             [vertices[0], vertices[1], vertices[2], vertices[3]],  # Bottom
             [vertices[4], vertices[5], vertices[6], vertices[7]],  # Top
-            [vertices[0], vertices[1], vertices[5], vertices[4]],  # Front
-            [vertices[2], vertices[3], vertices[7], vertices[6]],  # Back
+            [vertices[0], vertices[1], vertices[5], vertices[4]],  # top
+            [vertices[2], vertices[3], vertices[7], vertices[6]],  # bottom
             [vertices[1], vertices[2], vertices[6], vertices[5]],  # Right
             [vertices[0], vertices[3], vertices[7], vertices[4]],  # Left
         ]
@@ -260,12 +260,12 @@ def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
             alpha = 0.9
             name = "Inward Door"
         # draw line in place of door
-        if selected_door_type == "front" :
+        if selected_door_type == "top" :
 
             obj_shadow = patches.Rectangle((y, x), door_width, shadow, edgecolor="gray", facecolor="gray", alpha=alpha)
             ax.add_patch(obj_shadow)
             ax.text(y + door_width / 2, x + shadow / 2, name, ha="center", va="center", fontsize=10, fontweight="bold")
-        elif selected_door_type == "back":
+        elif selected_door_type == "bottom":
 
             obj_shadow = patches.Rectangle((y,room_width-shadow), door_width, shadow, edgecolor="gray", facecolor="gray", alpha=alpha)
             ax.add_patch(obj_shadow)
@@ -287,11 +287,11 @@ def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
     # Draw objects
     for obj in objects:
         x,y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
-        conv_x , conv_y, conv_w, conv_d,  conv_shadow_front, conv_shadow_left, conv_shadow_right, conv_shadow_back = convert_values((x, y, width, depth), shadow, check_which_wall((x, y, width, depth), room_width, room_depth))
-        shadow_x = conv_x - conv_shadow_front
+        conv_x , conv_y, conv_w, conv_d,  conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x, y, width, depth), shadow, check_which_wall((x, y, width, depth), room_width, room_depth))
+        shadow_x = conv_x - conv_shadow_top
         shadow_y = conv_y - conv_shadow_left
         shadow_w = conv_w + conv_shadow_left + conv_shadow_right
-        shadow_d = conv_d + conv_shadow_back + conv_shadow_front
+        shadow_d = conv_d + conv_shadow_bottom + conv_shadow_top
         obj_rect = patches.Rectangle((conv_y, conv_x), conv_w, conv_d, edgecolor="blue", facecolor="lightblue", alpha=0.7)
         obj_shadow = patches.Rectangle((shadow_y, shadow_x), shadow_w, shadow_d, edgecolor="gray", facecolor="lightgray", alpha=0.5)
         ax.add_patch(obj_rect)

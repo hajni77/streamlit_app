@@ -24,75 +24,96 @@ def check_which_wall(new_rect, room_width, room_depth):
         return "right"
     else:
         return "middle"
+def check_which_wall_for_door(new_rect, room_width, room_depth):
+    x,y,width,depth = new_rect
+    
+    if x == 0 and y==0:
+        return "top-left"
+    elif y == room_depth-width and x == 0:
+        return "top-right"
+    elif x == room_width-depth and y == 0:
+        return "bottom-left"
+    elif x == room_width-depth and y == room_depth-width:
+        return "bottom-right"
+    elif x == 0 and y!= 0:
+        return "top"
+    elif y == 0 and x!=0:
+        return "left"
+    elif y == room_depth and x != 0:
+        return "right"
+    elif x == room_width and y != 0:
+        return "bottom"
+    else:
+        return "middle"
 
 def convert_values(rect, shadow, wall):
     """Converts the values of the object and shadow based on the wall it is closest to."""
     x, y, width, depth = rect
 
-    shadow_front, shadow_left, shadow_right, shadow_bottom = shadow
+    shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
     if wall == "top":
         new_shadow_left = shadow_right
         new_shadow_right = shadow_left
-        new_shadow_bottom = shadow_front
-        new_shadow_front = shadow_bottom
-        return x, y, width, depth, new_shadow_front, new_shadow_left, new_shadow_right, new_shadow_bottom
+        new_shadow_bottom = shadow_top
+        new_shadow_top = shadow_bottom
+        return x, y, width, depth, new_shadow_top, new_shadow_left, new_shadow_right, new_shadow_bottom
     elif wall == "right":
         new_shadow_right = shadow_bottom
-        new_shadow_front = shadow_right
+        new_shadow_top = shadow_right
         new_shadow_bottom = shadow_left
-        new_shadow_left = shadow_front
-        return x, y, width, depth,  new_shadow_front, new_shadow_left,new_shadow_right, new_shadow_bottom
+        new_shadow_left = shadow_top
+        return x, y, width, depth,  new_shadow_top, new_shadow_left,new_shadow_right, new_shadow_bottom
     elif wall == "left":
         new_shadow_left = shadow_bottom
-        new_shadow_front = shadow_left
+        new_shadow_top = shadow_left
         new_shadow_bottom = shadow_right
-        new_shadow_right = shadow_front
-        return x, y, width, depth,  new_shadow_front, new_shadow_left,new_shadow_right, new_shadow_bottom 
+        new_shadow_right = shadow_top
+        return x, y, width, depth,  new_shadow_top, new_shadow_left,new_shadow_right, new_shadow_bottom 
     elif wall == "bottom":
-        return x, y, width, depth, shadow_front, shadow_left, shadow_right, shadow_bottom
+        return x, y, width, depth, shadow_top, shadow_left, shadow_right, shadow_bottom
     elif wall == "top-left":
-        new_shadow_front = 0
+        new_shadow_top = 0
         new_shadow_left = 0
         if width > depth:
             new_shadow_right = shadow_left
-            new_shadow_bottom = shadow_front
+            new_shadow_bottom = shadow_top
         else:
-            new_shadow_right = shadow_front
+            new_shadow_right = shadow_top
             new_shadow_bottom = shadow_right
-        return x, y, width, depth, new_shadow_front, new_shadow_left, new_shadow_right, new_shadow_bottom
+        return x, y, width, depth, new_shadow_top, new_shadow_left, new_shadow_right, new_shadow_bottom
         
     elif wall == "top-right":
-        new_shadow_front = 0
+        new_shadow_top = 0
         new_shadow_right = 0
         if width > depth:   
             new_shadow_left = shadow_right
-            new_shadow_bottom = shadow_front
+            new_shadow_bottom = shadow_top
         else:
-            new_shadow_left = shadow_front
+            new_shadow_left = shadow_top
             new_shadow_bottom = shadow_left
-        return x, y, width, depth, new_shadow_front, new_shadow_left, new_shadow_right, new_shadow_bottom
+        return x, y, width, depth, new_shadow_top, new_shadow_left, new_shadow_right, new_shadow_bottom
     elif wall == "bottom-left":
         new_shadow_left = 0
         new_shadow_bottom = 0
         if width > depth:
             new_shadow_right = shadow_right
-            new_shadow_front = shadow_front
+            new_shadow_top = shadow_top
         else:
-            new_shadow_right = shadow_front
-            new_shadow_front = shadow_left
-        return x, y, width, depth, new_shadow_front, new_shadow_left, new_shadow_right, new_shadow_bottom
+            new_shadow_right = shadow_top
+            new_shadow_top = shadow_left
+        return x, y, width, depth, new_shadow_top, new_shadow_left, new_shadow_right, new_shadow_bottom
     elif wall == "bottom-right":
         new_shadow_right = 0
         new_shadow_bottom = 0
         if width > depth:
             new_shadow_left = shadow_left
-            new_shadow_front = shadow_front
+            new_shadow_top = shadow_top
         else:
-            new_shadow_left = shadow_front
-            new_shadow_front = shadow_right
-        return x, y, width, depth, new_shadow_front, new_shadow_left, new_shadow_right, new_shadow_bottom
+            new_shadow_left = shadow_top
+            new_shadow_top = shadow_right
+        return x, y, width, depth, new_shadow_top, new_shadow_left, new_shadow_right, new_shadow_bottom
     else:
-        return x, y, width, depth, shadow_front, shadow_left, shadow_right, shadow_bottom
+        return x, y, width, depth, shadow_top, shadow_left, shadow_right, shadow_bottom
         
 # Check if two rectangles overlap
 def check_overlap(rect1, rect2):
@@ -118,29 +139,29 @@ def is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_de
     """Ensures the new object does not overlap with existing objects or shadows."""
     
     
-    shadow_front, shadow_left, shadow_right, shadow_back = shadow_space  # Extract shadow values
+    shadow_top, shadow_left, shadow_right, shadow_bottom = shadow_space  # Extract shadow values
     new_rect_wall = check_which_wall(new_rect, room_width, room_depth)
     #convert values
-    conv_x,conv_y,conv_width,conv_depth, conv_shadow_front, conv_shadow_left, conv_shadow_right, conv_shadow_back = convert_values(new_rect, shadow_space,new_rect_wall )
+    conv_x,conv_y,conv_width,conv_depth, conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values(new_rect, shadow_space,new_rect_wall )
     # create squares for shadow space
-    if shadow_front == 0 and shadow_left == 0 and shadow_right == 0 and shadow_back == 0:
+    if shadow_top == 0 and shadow_left == 0 and shadow_right == 0 and shadow_bottom == 0:
         shadow_space = [(conv_x, conv_y, conv_width, conv_depth)]
     else:
-        shadow_space = [(conv_x - conv_shadow_front, conv_y - conv_shadow_left, conv_width + conv_shadow_left + conv_shadow_right, conv_depth + conv_shadow_front + conv_shadow_back)]
+        shadow_space = [(conv_x - conv_shadow_top, conv_y - conv_shadow_left, conv_width + conv_shadow_left + conv_shadow_right, conv_depth + conv_shadow_top + conv_shadow_bottom)]
     object_space = [(conv_x, conv_y, conv_width, conv_depth)]
      
     for rect in placed_rects:
         rx, ry, r_width, r_depth, r_shadow = rect  # Each placed rect has shadow info
         rect_sizes = (rx, ry, r_width, r_depth)
         
-        r_front_shadow, r_left_shadow, r_right_shadow, r_back_shadow= r_shadow
+        r_top_shadow, r_left_shadow, r_right_shadow, r_bottom_shadow= r_shadow
         placed_rect_wall = check_which_wall(rect_sizes, room_width, room_depth)
         # convert values
-        r_conv_x, r_conv_y, r_conv_width, r_conv_depth, r_conv_shadow_front, r_conv_shadow_left, r_conv_shadow_right, r_conv_shadow_back = convert_values(rect_sizes, r_shadow, placed_rect_wall)
-        if r_front_shadow == 0 and r_left_shadow == 0 and r_right_shadow == 0 and r_back_shadow == 0:
+        r_conv_x, r_conv_y, r_conv_width, r_conv_depth, r_conv_shadow_top, r_conv_shadow_left, r_conv_shadow_right, r_conv_shadow_bottom = convert_values(rect_sizes, r_shadow, placed_rect_wall)
+        if r_top_shadow == 0 and r_left_shadow == 0 and r_right_shadow == 0 and r_bottom_shadow == 0:
             r_shadow_space = [(r_conv_x, r_conv_y, r_conv_width, r_conv_depth)]
         else:
-            r_shadow_space = [(r_conv_x - r_conv_shadow_front, r_conv_y - r_conv_shadow_left, r_conv_width + r_conv_shadow_left + r_conv_shadow_right, r_conv_depth + r_conv_shadow_front + r_conv_shadow_back)]
+            r_shadow_space = [(r_conv_x - r_conv_shadow_top, r_conv_y - r_conv_shadow_left, r_conv_width + r_conv_shadow_left + r_conv_shadow_right, r_conv_depth + r_conv_shadow_top + r_conv_shadow_bottom)]
         r_object_space = [(r_conv_x, r_conv_y, r_conv_width, r_conv_depth)]
            
         # check if the actual objects overlap (STRICT)
@@ -177,9 +198,9 @@ def generate_random_size(object_type):
 def windows_doors_overlap(windows_doors, x, y, z,width, depth,  room_width, room_depth, shadow_space):
     new_rect = (x, y, width, depth)
     new_rect_wall = check_which_wall(new_rect, room_width, room_depth)
-    conv_x,conv_y,conv_width,conv_depth, conv_shadow_front, conv_shadow_left, conv_shadow_right, conv_shadow_back = convert_values(new_rect, shadow_space,new_rect_wall )
+    conv_x,conv_y,conv_width,conv_depth, conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values(new_rect, shadow_space,new_rect_wall )
     # create squares for shadow space
-    shadow_space = [(conv_x - conv_shadow_front, conv_y - conv_shadow_left, conv_width + conv_shadow_left + conv_shadow_right, conv_depth + conv_shadow_front + conv_shadow_back)]
+    shadow_space = [(conv_x - conv_shadow_top, conv_y - conv_shadow_left, conv_width + conv_shadow_left + conv_shadow_right, conv_depth + conv_shadow_top + conv_shadow_bottom)]
     object_space = [(conv_x, conv_y, conv_width, conv_depth)]
     door_shadow=75
     isValid = False
@@ -189,9 +210,9 @@ def windows_doors_overlap(windows_doors, x, y, z,width, depth,  room_width, room
         # Only check shadow for doors
         if "door" in name.lower():
             # Calculate shadow area based on door position
-            if position == "front":
+            if position == "top":
                 shadow_rect = (wx,wy, wwidth, door_shadow)
-            elif position == "back":
+            elif position == "bottom":
                 shadow_rect = (wx-door_shadow,wy, wwidth, door_shadow)
             elif position == "left":
                 shadow_rect = (wx , wy, door_shadow, wwidth)
@@ -200,8 +221,7 @@ def windows_doors_overlap(windows_doors, x, y, z,width, depth,  room_width, room
             else:
                 continue
             if check_overlap(shadow_rect, object_space[0]):
-                print("overlap with door shadow")
-                print (shadow_rect, object_space[0])
+
                 return True
      
         if "window" in name.lower():
@@ -218,31 +238,31 @@ def windows_doors_overlap(windows_doors, x, y, z,width, depth,  room_width, room
 def check_distance_from_wall(rect, room_width, room_depth,wall, shadow):
     """Check the distance of the object from the wall."""
     x,y,width,depth = rect
-    shadow_front, shadow_left, shadow_right, shadow_back = shadow
+    shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
     if (wall == "top" or wall == "bottom"):
-        dist_front =31
+        dist_top =31
         dist_left = y - shadow_left
         dist_right = room_depth - (y + width + shadow_right )
         dist_bottom = 31
     elif (wall == "left" or wall == "right"):
-        dist_front = x - shadow_front
-        dist_bottom = room_width - (x + depth + shadow_back )
+        dist_top = x - shadow_top
+        dist_bottom = room_width - (x + depth + shadow_bottom )
         dist_left = 31
         dist_right = 31
 
-    return dist_front,dist_left,dist_right,dist_bottom
+    return dist_top,dist_left,dist_right,dist_bottom
 
 # adjust the position of the object 
 def adjust_object_placement_pos(new_rect, shadow,room_width, room_depth, wall):
     """Adjusts object placement based on remaining space from walls."""
     
     x, y, width, depth = new_rect 
-    shadow_front, shadow_left,shadow_right,shadow_back = shadow# Object's original position and size
+    shadow_top, shadow_left,shadow_right,shadow_bottom = shadow# Object's original position and size
     new_x, new_y = x, y  # Initialize new position to original position
     if wall == "top":
-        new_x = shadow_front
+        new_x = shadow_top
     elif wall == "bottom":
-        new_x = room_width - (depth + shadow_back)
+        new_x = room_width - (depth + shadow_bottom)
     elif wall == "left":
         new_y = shadow_left
     elif wall == "right":
@@ -251,15 +271,15 @@ def adjust_object_placement_pos(new_rect, shadow,room_width, room_depth, wall):
 
 # Check the distance between two converted rectangles
 def check_distance (conv_rect1,conv_rect2):
-    x1, y1, width1, depth1, shadow_front1, shadow_left1, shadow_right1, shadow_bottom1 = conv_rect1
-    x2, y2, width2, depth2, shadow_front2, shadow_left2, shadow_right2, shadow_bottom2 = conv_rect2
+    x1, y1, width1, depth1, shadow_top1, shadow_left1, shadow_right1, shadow_bottom1 = conv_rect1
+    x2, y2, width2, depth2, shadow_top2, shadow_left2, shadow_right2, shadow_bottom2 = conv_rect2
     if x1 < x2:
         # check which greater
-        shadow = shadow_bottom1 if shadow_bottom1 > shadow_front2 else shadow_front2
+        shadow = shadow_bottom1 if shadow_bottom1 > shadow_top2 else shadow_top2
         dist = x2 - (x1 + width1+shadow )
         smaller = True
     elif x1 > x2:
-        shadow = shadow_bottom2 if shadow_bottom2 > shadow_front1 else shadow_front1
+        shadow = shadow_bottom2 if shadow_bottom2 > shadow_top1 else shadow_top1
         dist = x1 - (x2 + width2)
         smaller = False
     elif y1 < y2:
@@ -275,16 +295,8 @@ def check_distance (conv_rect1,conv_rect2):
 
 def adjust_object_placement(conv_rect,  room_width, room_depth, rect_wall, dist):
     """Adjusts object placement based on remaining space from walls."""
-    x, y, width, depth , shadow_front, shadow_left,shadow_right,shadow_back= conv_rect 
+    x, y, width, depth , shadow_top, shadow_left,shadow_right,shadow_bottom= conv_rect 
     new_x, new_y = x, y  # Initialize new position to original position
-    if rect_wall == "top":
-        new_x = shadow_front
-    elif rect_wall == "bottom":
-        new_x = room_width - (depth + shadow_back)
-    elif rect_wall == "left":
-        new_y = shadow_left
-    elif rect_wall == "right":
-        new_y = room_depth - (width + shadow_right)
     
     if rect_wall == "top" or rect_wall == "bottom":
         new_y = new_y + dist
@@ -309,7 +321,7 @@ def get_available_walls(door_walls):
 def reduce_size(conv_placed_obj, size_range):
     """Reduces the size of the object by 10%."""
     min_width, max_width, min_depth, max_depth = size_range
-    x, y, width, depth, shadow_front, shadow_left, shadow_right, shadow_bottom = conv_placed_obj
+    x, y, width, depth, shadow_top, shadow_left, shadow_right, shadow_bottom = conv_placed_obj
     n_width = int(width * 0.9)
     n_depth = int(depth * 0.9)
     if (n_width > min_width and n_depth > min_depth):

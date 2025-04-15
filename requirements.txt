@@ -6,3 +6,5 @@ pydrive
 firebase-admin
 psycopg2-binary
 python-dotenv
+st-supabase-connection
+supabase
