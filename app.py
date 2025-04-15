@@ -58,7 +58,7 @@ def get_user_supabase():
     return supabase  # fallbottom to anon/service
 
 # Function to Save Data to Firebase
-def save_data(room_sizes, positions, doors, review, is_enough_path, space, overall):
+def save_data(room_sizes, positions, doors, review, is_enough_path, space, overall, is_everything):
     if not st.session_state.auth.get('user'):
         st.error("Please sign in to submit reviews")
         return
@@ -104,7 +104,8 @@ def save_data(room_sizes, positions, doors, review, is_enough_path, space, overa
             review_data.update({
                 "is_enough_path": is_enough_path,
                 "space": space,
-                "overall": overall
+                "overall": overall,
+                "is_everything": is_everything,
             })
         # Insert into Supabase
         response = supabase.table('reviews').insert(review_data).execute()
@@ -114,7 +115,6 @@ def save_data(room_sizes, positions, doors, review, is_enough_path, space, overa
         else:
             st.error("Failed to save review")
             return None
-
     except Exception as e:
         st.error(f"Error saving review: {str(e)}")
         return None
@@ -249,12 +249,13 @@ else:
 
 
     is_enough_path = st.checkbox("Is there enough pathway space?")
+    is_everything = st.checkbox("Is everything placed?")
     space = st.slider("Space Utilization", 0,10,5)
     overall = st.slider("Overall Satisfaction", 0,10,5)
     st.write("Write your review about the generated room:")
     review = st.text_area("Review", "Write your review here...")
     if st.button("Submit Review"):
-        save_data((room_width, room_depth, room_height), st.session_state.positions, st.session_state.windows_doors, review, is_enough_path, space, overall)
+        save_data((room_width, room_depth, room_height), st.session_state.positions, st.session_state.windows_doors, review, is_enough_path, space, overall, is_everything)
         st.success("Thank you for your review, all data saved to database!")
         
 
