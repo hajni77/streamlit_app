@@ -19,6 +19,8 @@ object_colors = {
     "Washing Machine": "orange",
     "Double Sink": "brown",
     "Cabinet": "pink",
+    "Washing Dryer": "orange",
+    "Washing Machine and Dryer": "orange",
 }
 def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shadow=75):
     # Draw windows and doors
@@ -220,9 +222,9 @@ def visualize_room_with_shadows_3d(bathroom_size, placed_objects, windows_doors)
     for i, (name, color) in enumerate(object_colors.items()):
         ax.text(room_width + 1, room_depth - i*30, room_height, f"{name}: {color}", color=color, fontsize
                 =10)
-
+    visualize_door_windows(windows_doors, room_width, room_depth, ax)
     visualize_placed_objects(placed_objects, room_width, room_depth, ax) 
-    visualize_door_windows(windows_doors, room_width, room_depth, ax) 
+     
  # Initial view angle
     ax.view_init(elev=current_elev, azim=current_azim)
 
@@ -235,9 +237,11 @@ def visualize_room_with_shadows_3d(bathroom_size, placed_objects, windows_doors)
 
 def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
     
-    room_width , room_depth, = bathroom_size
-    fig, ax = plt.subplots(figsize=(8, 6))
+    room_width , room_depth = bathroom_size
 
+    # figsize based on room size
+    fig, ax = plt.subplots(figsize=((room_depth/100)*10, (room_width/100)*10))
+    
     # Draw the room boundary
     ax.set_ylim(0, room_width)
     ax.set_xlim(0, room_depth)
@@ -297,4 +301,50 @@ def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
         ax.add_patch(obj_rect)
         ax.add_patch(obj_shadow)
         ax.text(conv_y + conv_w/2, conv_x + conv_d/2, name, ha="center", va="center", fontsize=10, fontweight="bold")
+    return fig
+
+
+
+
+
+def visualize_room_with_available_spaces(placed_objects, room_sizes, available_spaces):
+    room_width, room_depth = room_sizes
+    
+    # Create figure and axes
+    fig, ax = plt.subplots(figsize=((room_depth/100)*10, (room_width/100)*10))
+    
+    # Draw room boundaries
+    ax.add_patch(patches.Rectangle((0, 0), room_depth, room_width, 
+                                   fill=False, edgecolor='black', linewidth=2))
+    
+    # Draw placed objects
+    for obj in placed_objects:
+        x, y, width, depth, height, _, _, _, _ = obj
+        ax.add_patch(patches.Rectangle((y, x), width, depth, 
+                                       fill=True, color='blue', alpha=0.7))
+    
+    # Draw available spaces
+    for space in available_spaces:
+        x, y, width, depth = space
+        ax.add_patch(patches.Rectangle((y, x), width, depth, 
+                                       fill=True, color='green', alpha=0.3))
+    
+    # Set limits and labels
+    ax.set_xlim(0, room_depth)
+    ax.set_ylim(0, room_width)
+    ax.set_xlabel('Width (cm)')
+    ax.set_ylabel('Depth (cm)')
+    ax.set_title('Room Layout with Available Spaces')
+    
+    # Add legend
+    blue_patch = patches.Patch(color='blue', alpha=0.7, label='Placed Objects')
+    green_patch = patches.Patch(color='green', alpha=0.3, label='Available Spaces')
+    ax.legend(handles=[blue_patch, green_patch])
+    # rotate the fig
+    ax.set_aspect('equal')
+    ax.invert_yaxis()
+    ## rotate 90 degree
+
+
+    plt.show()
     return fig

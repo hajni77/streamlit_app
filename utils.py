@@ -45,7 +45,7 @@ def check_which_wall_for_door(new_rect, room_width, room_depth):
         return "bottom"
     else:
         return "middle"
-
+# only modify shadow values
 def convert_values(rect, shadow, wall):
     """Converts the values of the object and shadow based on the wall it is closest to."""
     x, y, width, depth = rect
@@ -126,7 +126,15 @@ def check_overlap(rect1, rect2):
     rect2_right = rect2[0] + rect2[3]
     rect2_top = rect2[1]
     rect2_bottom = rect2[1] + rect2[2]
+    # check if the rectangles are inside each other (1 in 2)
+    if rect1_left >= rect2_left and rect1_right <= rect2_right and rect1_top >= rect2_top and rect1_bottom <= rect2_bottom:
+        return True
 
+    # check if the rectangles are inside each other (2 in 1)
+    if rect2_left >= rect1_left and rect2_right <= rect1_right and rect2_top >= rect1_top and rect2_bottom <= rect1_bottom:
+        return True
+    
+    
     # Check if the rectangles overlap
     if (rect1_right <= rect2_left or rect2_right <= rect1_left) or (rect1_bottom <= rect2_top or rect2_bottom <= rect1_top): 
         return False  # No overlap 
@@ -137,12 +145,15 @@ def check_overlap(rect1, rect2):
 # Check if the new object can be placed without overlapping with existing objects or shadows
 def is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_depth):
     """Ensures the new object does not overlap with existing objects or shadows."""
-    
+
     
     shadow_top, shadow_left, shadow_right, shadow_bottom = shadow_space  # Extract shadow values
     new_rect_wall = check_which_wall(new_rect, room_width, room_depth)
     #convert values
     conv_x,conv_y,conv_width,conv_depth, conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values(new_rect, shadow_space,new_rect_wall )
+    # check that the object actually fits in the room
+    if conv_x < 0 or conv_y < 0 or conv_x + conv_depth > room_width or conv_y + conv_width > room_depth:
+        return False  # Object extends outside the room → INVALID
     # create squares for shadow space
     if shadow_top == 0 and shadow_left == 0 and shadow_right == 0 and shadow_bottom == 0:
         shadow_space = [(conv_x, conv_y, conv_width, conv_depth)]
@@ -163,7 +174,8 @@ def is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_de
         else:
             r_shadow_space = [(r_conv_x - r_conv_shadow_top, r_conv_y - r_conv_shadow_left, r_conv_width + r_conv_shadow_left + r_conv_shadow_right, r_conv_depth + r_conv_shadow_top + r_conv_shadow_bottom)]
         r_object_space = [(r_conv_x, r_conv_y, r_conv_width, r_conv_depth)]
-           
+
+        
         # check if the actual objects overlap (STRICT)
         if check_overlap(object_space[0], r_object_space[0]):
             return False  # Objects themselves overlap → INVALID
@@ -181,7 +193,7 @@ def check_valid_room(placed_obj):
     """Check if the room is valid."""
     for obj in placed_obj:
         name = obj[5]
-        if name == "sink" or name == "Sink":
+        if name == "sink" or name == "Sink" or name == "double_sink" or name =="Double Sink":
             return True
     print("No sink in the room")
     return False

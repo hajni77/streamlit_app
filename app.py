@@ -9,7 +9,8 @@ import json
 import firebase_admin
 from firebase_admin import credentials, db
 from authentication import auth_section, protected_route
-
+from optimization import identify_available_space, suggest_placement_in_available_space
+from visualization import visualize_room_with_available_spaces
 # cred = credentials.Certificate("firebase_credentials.json") 
 
 import psycopg2
@@ -207,11 +208,20 @@ else:
         if selected_door_type == "top":
             y = x
             x = 0
+            if x+door_width > room_depth:
+                x = room_depth - door_width
         if selected_door_type == "bottom":
             y = x
             x = room_width
+            if x+door_width > room_depth:
+                x = room_depth - door_width
         if selected_door_type == "right":
             y = room_depth 
+            if y+door_width > room_width:
+                y = room_width - door_width
+        if selected_door_type == "left":
+            if y+door_width > room_width:
+                y = room_width - door_width
         selected_objects = [objects_map[obj] for obj in selected_object]
    
         windows_doors = [
@@ -220,6 +230,58 @@ else:
         bathroom_size = ( room_width,room_depth)  # Width, Depth, Height
 
         positions = fit_objects_in_room(bathroom_size, selected_objects, windows_doors, OBJECT_TYPES,attempt=10000)
+
+
+
+        
+        placed_objects = [pos[5] for pos in positions]
+        i = 1
+        while len(placed_objects) < len(selected_objects) and i < 3:
+            positions = fit_objects_in_room(bathroom_size, selected_objects, windows_doors, OBJECT_TYPES,attempt=10000)
+            placed_objects = [pos[5] for pos in positions]
+            i += 1
+            
+
+
+        # Find available spaces (excluding shadows by default)
+        available_spaces = identify_available_space(positions, (room_width, room_depth), grid_size=1)
+
+        # Print the available spaces
+        print(f"Found {len(available_spaces)} available spaces:")
+        for i, space in enumerate(available_spaces):
+            x, y, width, depth = space
+            print(f"Space {i+1}: Position ({x}, {y}), Size: {width}x{depth} cm")
+
+        
+        # ### Try to place a new toilet in an available space
+        # suggested_placement = suggest_placement_in_available_space(
+        #     available_spaces, 
+        #     "Toilet", 
+        #     OBJECT_TYPES
+        # )
+
+        # if suggested_placement:
+        #     x, y, width, depth = suggested_placement
+        #     print(f"Suggested toilet placement: Position ({x}, {y}), Size: {width}x{depth} cm")
+            
+        #     # You could then add this to your placed_objects list
+        #     # (You'd need to add height and shadow values based on your object types)
+        #     height =  OBJECT_TYPES["toilet"]["optimal_size"][2]
+        #     shadow = OBJECT_TYPES["toilet"]["shadow_space"] # Example shadow values
+        #     new_object = (x, y, width, depth, height, 0, 0, 0, shadow)
+        #     placed_objects.append(new_object)
+        #     positions.append(new_object)
+
+        # else:
+        #     print("No suitable space found for a toilet")
+
+        ###
+
+
+
+
+
+        # visualization
         fig = visualize_room_with_shadows_3d(bathroom_size, positions, windows_doors)
         isTrue = check_valid_room( positions)
         if isTrue == True:
@@ -237,11 +299,14 @@ else:
         st.session_state.isTrue = isTrue
         st.session_state.positions = positions
         st.session_state.windows_doors = windows_doors
-        
+        figvis = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces)
+        st.pyplot(figvis)
+        st.session_state.figvis = figvis
     
     elif st.session_state.fig and st.session_state.fig2:
         st.pyplot(st.session_state.fig)
         st.pyplot(st.session_state.fig2)
+        st.pyplot(st.session_state.figvis)
 
 
 

@@ -76,7 +76,7 @@
       "must_be_against_wall": true,
       "priority": 1
     },
-    "sink_double": {
+    "double_sink": {
       "name": "Double Sink",
       "must_be_corner": false,
       "shadow_space": [60,0,0,0],
@@ -143,7 +143,7 @@
       "name": "Washing Machine and Dryer",
       "must_be_corner": false,
       "shadow_space": [0,0,0,0],
-      "size_range": [60, 70, 45, 60, 160, 180],
+      "size_range": [60, 70, 45, 60, 160, 160],
       "optimal_size": [60, 60, 180],
       "must_be_against_wall": true,
       "priority": 3
