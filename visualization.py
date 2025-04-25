@@ -346,5 +346,4 @@ def visualize_room_with_available_spaces(placed_objects, room_sizes, available_s
     ## rotate 90 degree
 
 
-    plt.show()
     return fig

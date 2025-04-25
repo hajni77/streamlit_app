@@ -74,7 +74,7 @@ def optimize_object (rect, shadow, room_width, room_depth, placed_obj):
 
 
 
-def identify_available_space(placed_obj, room_sizes, include_shadows=False, grid_size=10):
+def identify_available_space(placed_obj, room_sizes, include_shadows=False, grid_size=10, windows_doors=[]):
     """
     Identifies available space in a room after objects have been placed.
     
@@ -101,14 +101,16 @@ def identify_available_space(placed_obj, room_sizes, include_shadows=False, grid
     # Mark occupied spaces
     for obj in placed_obj:
         x, y, width, depth, height, _1, _2, _3, shadow = obj
-        
+        # convert shadow values
+        x, y, width, depth, shadow_top, shadow_left, shadow_right, shadow_bottom = convert_values((x,y,width,depth), shadow, check_which_wall((x,y,width,depth), room_width, room_depth))
         if include_shadows:
             # Include shadow areas as occupied space
-            shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
-            
+            print("name", obj[5])
+            print(shadow_top, shadow_left, shadow_right, shadow_bottom)
+
             # Calculate the extended area including shadow
-            start_x = max(0, (x - shadow_left) // grid_size)
-            start_y = max(0, (y - shadow_top) // grid_size)
+            start_x = max(0, (x - shadow_top) // grid_size)
+            start_y = max(0, (y - shadow_left) // grid_size)
             end_x = min(grid_width, (x + depth + shadow_bottom) // grid_size )
             end_y = min(grid_depth, (y + width + shadow_right) // grid_size )
         else:
@@ -122,7 +124,19 @@ def identify_available_space(placed_obj, room_sizes, include_shadows=False, grid
         for i in range(start_x, end_x):
             for j in range(start_y, end_y):
                 grid[i][j] = 0
-    
+    for i in windows_doors:
+        id_, wall, x, y,  width,height, parapet = i
+        
+        # Calculate the extended area including shadow
+        start_x = max(0, (x ) // grid_size)
+        start_y = max(0, (y) // grid_size)
+        end_x = min(grid_width, (x + width) // grid_size )
+        end_y = min(grid_depth, (y + 75) // grid_size )
+        
+        # Mark the area as occupied
+        for i in range(start_x, end_x):
+            for j in range(start_y, end_y):
+                grid[i][j] = 0
     # Find contiguous available spaces
     available_spaces = []
     visited = [[False for _ in range(grid_depth)] for _ in range(grid_width)]
@@ -206,13 +220,54 @@ def suggest_placement_in_available_space(available_spaces, object_type, object_t
     Returns:
         tuple: Suggested placement as (x, y, width, depth) or None if no suitable space.
     """
-    if not available_spaces or object_type not in object_types_dict:
+    if not available_spaces:
         return None
     
-    # Get object size range
-    obj_def = object_types_dict[object_type]
+    # Find the object definition by name
+    obj_def = None
+    for key, value in object_types_dict.items():
+        if value["name"] == object_type:
+            obj_def = value
+            break
+    
+    if obj_def is None:
+        return None
+    
+    # First try with optimal size if available
+    if "optimal_size" in obj_def:
+        optimal_width = obj_def["optimal_size"][0]
+        optimal_depth = obj_def["optimal_size"][1]
+        
+        # Try to place with optimal dimensions first
+        best_space = find_best_space_for_size(available_spaces, optimal_width, optimal_depth)
+        
+        if best_space:
+            return best_space
+    
+    # If optimal placement failed or no optimal size, try with size range
     min_width, max_width = obj_def["size_range"][0], obj_def["size_range"][1]
     min_depth, max_depth = obj_def["size_range"][2], obj_def["size_range"][3]
+    
+    return find_best_space_for_size(available_spaces, min_width, max_width, min_depth, max_depth)
+
+def find_best_space_for_size(available_spaces, width, depth, min_width=None, min_depth=None):
+    """
+    Finds the best space for an object with the given dimensions.
+    
+    Args:
+        available_spaces (list): List of available spaces as (x, y, width, depth) tuples.
+        width (int): Preferred width of the object.
+        depth (int): Preferred depth of the object.
+        min_width (int, optional): Minimum acceptable width. If None, uses width as minimum.
+        min_depth (int, optional): Minimum acceptable depth. If None, uses depth as minimum.
+    
+    Returns:
+        tuple: Suggested placement as (x, y, width, depth) or None if no suitable space.
+    """
+    if min_width is None:
+        min_width = width
+    if min_depth is None:
+        min_depth = depth
     
     best_space = None
     best_fit_score = float('inf')  # Lower is better (less wasted space)
@@ -220,20 +275,309 @@ def suggest_placement_in_available_space(available_spaces, object_type, object_t
     for space in available_spaces:
         space_x, space_y, space_width, space_depth = space
         
-        # Check if the space is large enough for the minimum size
-        if space_width >= min_width and space_depth >= min_depth:
-            # Calculate optimal size for this space (not exceeding max dimensions)
-            width = min(max_width, space_width)
-            depth = min(max_depth, space_depth)
+        # Try both orientations of the object
+        orientations = [
+            (width, depth),  # Normal orientation
+            (depth, width)   # Rotated 90 degrees
+        ]
+        
+        for obj_width, obj_depth in orientations:
+            # Check if the space is large enough for the object
+            if space_width >= obj_width and space_depth >= obj_depth:
+                # Calculate fit score (lower is better)
+                # This prioritizes spaces that are closer to the object's size
+                wasted_width = space_width - obj_width
+                wasted_depth = space_depth - obj_depth
+                fit_score = wasted_width + wasted_depth
+                
+                if fit_score < best_fit_score:
+                    best_fit_score = fit_score
+                    best_space = (space_x, space_y, obj_width, obj_depth)
             
-            # Calculate fit score (lower is better)
-            # This prioritizes spaces that are closer to the object's size
-            wasted_width = space_width - width
-            wasted_depth = space_depth - depth
-            fit_score = wasted_width + wasted_depth
-            
-            if fit_score < best_fit_score:
-                best_fit_score = fit_score
-                best_space = (space_x, space_y, width, depth)
+            # If exact size doesn't fit, try with minimum dimensions
+            elif space_width >= min_width and space_depth >= min_depth:
+                # Use the maximum possible dimensions that fit in this space
+                adjusted_width = min(space_width, obj_width)
+                adjusted_depth = min(space_depth, obj_depth)
+                
+                # Calculate fit score with a penalty for size reduction
+                wasted_width = space_width - adjusted_width
+                wasted_depth = space_depth - adjusted_depth
+                size_reduction_penalty = (obj_width - adjusted_width) + (obj_depth - adjusted_depth)
+                fit_score = wasted_width + wasted_depth + size_reduction_penalty * 2  # Extra penalty for size reduction
+                
+                if fit_score < best_fit_score:
+                    best_fit_score = fit_score
+                    best_space = (space_x, space_y, adjusted_width, adjusted_depth)
     
     return best_space
+
+def add_objects_to_available_spaces(placed_objects, room_sizes, object_types_dict, priority_objects=None, available_spaces=None):
+    """
+    Identifies available spaces and automatically adds new objects that fit in those spaces.
+    
+    Args:
+        placed_objects (list): List of placed objects with their positions, dimensions, and shadows.
+            Each object is a tuple (x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow).
+        room_sizes (tuple): Room dimensions as (width, depth).
+        object_types_dict (dict): Dictionary of object types with their specifications.
+        priority_objects (list, optional): List of object types to prioritize for placement.
+            If None, will try to place any object that fits.
+    
+    Returns:
+        tuple: (updated_objects, added_objects)
+            - updated_objects: List of all objects including newly added ones
+            - added_objects: List of only the newly added objects
+    """
+    
+    if not available_spaces:
+        return placed_objects, []
+    
+    # Get list of objects already placed
+    placed_object_types = [obj[5] for obj in placed_objects]
+    
+    # Get all available object types by name
+    object_names = [value["name"] for value in object_types_dict.values()]
+    
+    # Determine which objects to try placing
+    if priority_objects:
+        # Filter priority objects to only include those not already placed
+        objects_to_try = [obj for obj in priority_objects if obj not in placed_object_types]
+    else:
+        # Try all objects not already placed
+        objects_to_try = [obj_type for obj_type in object_names 
+                         if obj_type not in placed_object_types]
+    
+    # Create a mapping of object names to their optimal sizes for sorting
+    object_sizes = {}
+    for key, value in object_types_dict.items():
+        object_name = value["name"]
+        if "optimal_size" in value:
+            object_sizes[object_name] = value["optimal_size"][0] * value["optimal_size"][1]
+        else:
+            # If optimal_size is not available, use the average of size_range
+            width_avg = (value["size_range"][0] + value["size_range"][1]) / 2
+            depth_avg = (value["size_range"][2] + value["size_range"][3]) / 2
+            object_sizes[object_name] = width_avg * depth_avg
+    
+    # Sort objects by size (smallest first to maximize space utilization)
+    objects_to_try.sort(key=lambda x: object_sizes.get(x, float('inf')))
+    
+    added_objects = []
+    updated_objects = placed_objects.copy()
+    
+    # Keep track of spaces that have been used
+    used_spaces = []
+    
+    # Try to place each object type
+    for obj_type in objects_to_try:
+        # Find object definition by name
+        obj_def = None
+        for key, value in object_types_dict.items():
+            if value["name"] == obj_type:
+                obj_def = value
+                break
+        
+        if obj_def is None:
+            continue
+        
+        # Get object specifications
+        shadow = obj_def["shadow_space"]
+        
+        # Filter available spaces to exclude already used ones
+        remaining_spaces = [space for i, space in enumerate(available_spaces) 
+                           if i not in used_spaces]
+        
+        # Find best placement for this object
+        placement = None
+        
+        # Handle special placement requirements
+        if obj_def["must_be_corner"]:
+            # For corner objects, filter spaces that include corners
+            corner_spaces = []
+            for space in remaining_spaces:
+                space_x, space_y, space_width, space_depth = space
+                # Check if space includes any corner
+                if (space_x == 0 and space_y == 0) or \
+                   (space_x == 0 and space_y + space_width == room_sizes[1]) or \
+                   (space_x + space_depth == room_sizes[0] and space_y == 0) or \
+                   (space_x + space_depth == room_sizes[0] and space_y + space_width == room_sizes[1]):
+                    corner_spaces.append(space)
+            
+            if corner_spaces:
+                # Find best placement in corner spaces
+                placement = suggest_placement_in_available_space(
+                    corner_spaces, obj_type, object_types_dict
+                )
+                
+                # Adjust placement to be exactly in the corner
+                if placement:
+                    x, y, width, depth = placement
+                    # Determine which corner and adjust accordingly
+                    if x == 0 and y == 0:  # Top-left corner
+                        pass  # Already in corner
+                    elif x == 0 and y + width >= room_sizes[1] - 10:  # Top-right corner
+                        y = room_sizes[1] - width
+                    elif x + depth >= room_sizes[0] - 10 and y == 0:  # Bottom-left corner
+                        x = room_sizes[0] - depth
+                    elif x + depth >= room_sizes[0] - 10 and y + width >= room_sizes[1] - 10:  # Bottom-right corner
+                        x = room_sizes[0] - depth
+                        y = room_sizes[1] - width
+                    
+                    placement = (x, y, width, depth)
+        
+        elif obj_def["must_be_against_wall"]:
+            # For wall objects, filter spaces that include walls
+            wall_spaces = []
+            for space in remaining_spaces:
+                space_x, space_y, space_width, space_depth = space
+                # Check if space includes any wall
+                if space_x == 0 or space_y == 0 or \
+                   space_x + space_depth >= room_sizes[0] - 10 or \
+                   space_y + space_width >= room_sizes[1] - 10:
+                    wall_spaces.append(space)
+            
+            if wall_spaces:
+                # Find best placement against walls
+                placement = suggest_placement_in_available_space(
+                    wall_spaces, obj_type, object_types_dict
+                )
+                
+                # Adjust placement to be exactly against a wall
+                if placement:
+                    x, y, width, depth = placement
+                    # Determine which wall is closest and adjust accordingly
+                    dist_to_top = x
+                    dist_to_left = y
+                    dist_to_bottom = room_sizes[0] - (x + depth)
+                    dist_to_right = room_sizes[1] - (y + width)
+                    
+                    min_dist = min(dist_to_top, dist_to_left, dist_to_bottom, dist_to_right)
+                    
+                    if min_dist == dist_to_top:
+                        x = 0  # Place against top wall
+                    elif min_dist == dist_to_left:
+                        y = 0  # Place against left wall
+                    elif min_dist == dist_to_bottom:
+                        x = room_sizes[0] - depth  # Place against bottom wall
+                    elif min_dist == dist_to_right:
+                        y = room_sizes[1] - width  # Place against right wall
+                    
+                    placement = (x, y, width, depth)
+        
+        # For regular objects, use standard placement
+        if placement is None:
+            placement = suggest_placement_in_available_space(
+                remaining_spaces, obj_type, object_types_dict
+            )
+        
+        if placement:
+            x, y, width, depth = placement
+            height = obj_def["optimal_size"][2]
+            must_be_corner = obj_def["must_be_corner"]
+            must_be_against_wall = obj_def["must_be_against_wall"]
+            
+            # Create new object
+            new_object = (x, y, width, depth, height, obj_type, must_be_corner, must_be_against_wall, shadow)
+            
+            # Check if placement is valid considering all objects
+            if is_valid_placement((x, y, width, depth), 
+                                 [(o[0], o[1], o[2], o[3], o[8]) for o in updated_objects], 
+                                 shadow, room_sizes[0], room_sizes[1]):
+                
+                # Add to our lists
+                updated_objects.append(new_object)
+                added_objects.append(new_object)
+                
+                # Mark the space as used
+                for i, space in enumerate(available_spaces):
+                    if space[0] <= x <= space[0] + space[2] and space[1] <= y <= space[1] + space[3]:
+                        used_spaces.append(i)
+                        break
+    
+    # Apply optimization to improve placement
+    #if added_objects:
+        #updated_objects = optimization(updated_objects, room_sizes)
+    
+    return updated_objects, added_objects
+
+def suggest_additional_fixtures(placed_objects, room_sizes, object_types_dict, available_spaces):
+    """
+    Analyzes the current bathroom layout and suggests additional fixtures that could be added.
+    
+    Args:
+        placed_objects (list): List of placed objects with their positions, dimensions, and shadows.
+        room_sizes (tuple): Room dimensions as (width, depth).
+        object_types_dict (dict): Dictionary of object types with their specifications.
+        available_spaces (list): List of available spaces as (x, y, width, depth) tuples.
+    
+    Returns:
+        dict: Dictionary with suggestions for additional fixtures and their potential placements.
+    """
+    print(placed_objects)
+    # Get list of objects already placed
+    placed_object_types = [obj[5] for obj in placed_objects]
+    
+    # Common bathroom fixtures to suggest
+    common_fixtures = [
+        "Toilet", "Sink", "Shower", "Bathtub", "Cabinet", 
+        "Double Sink", "Washing Machine", "Washing Dryer"
+    ]
+    
+    # Get all available object types by name
+    object_names = [value["name"] for value in object_types_dict.values()]
+    print(object_names)
+    print(placed_object_types)
+    # Filter to fixtures not already placed
+    available_fixtures = [f for f in common_fixtures 
+                         if f in object_names and f not in placed_object_types]
+
+    suggestions = {}
+    print(available_fixtures)
+    for fixture in available_fixtures:
+        placement = suggest_placement_in_available_space(
+            available_spaces, fixture, object_types_dict
+        )
+        
+        if placement:
+            x, y, width, depth = placement
+            suggestions[fixture] = {
+                "position": (x, y),
+                "dimensions": (width, depth),
+                "space_efficiency": calculate_space_efficiency(placement, available_spaces)
+            }
+    
+    if not suggestions:
+        return {"message": "No suitable fixtures can be added to the available spaces"}
+    
+    return {
+        "message": f"Found {len(suggestions)} potential fixtures to add",
+        "suggestions": suggestions
+    }
+
+def calculate_space_efficiency(placement, available_spaces):
+    """
+    Calculates how efficiently a placement uses an available space.
+    
+    Args:
+        placement (tuple): (x, y, width, depth) of the proposed placement
+        available_spaces (list): List of available spaces
+    
+    Returns:
+        float: Efficiency score between 0-1 (higher is better)
+    """
+    x, y, width, depth = placement
+    placement_area = width * depth
+    
+    # Find which space this placement is in
+    for space in available_spaces:
+        space_x, space_y, space_width, space_depth = space
+        
+        # Check if placement is within this space
+        if (space_x <= x < space_x + space_width and 
+            space_y <= y < space_y + space_depth):
+            
+            space_area = space_width * space_depth
+            return placement_area / space_area if space_area > 0 else 0
+    
+    return 0  # Not found in any space

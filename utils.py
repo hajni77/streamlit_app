@@ -251,6 +251,7 @@ def check_distance_from_wall(rect, room_width, room_depth,wall, shadow):
     """Check the distance of the object from the wall."""
     x,y,width,depth = rect
     shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
+    print(wall)
     if (wall == "top" or wall == "bottom"):
         dist_top =31
         dist_left = y - shadow_left

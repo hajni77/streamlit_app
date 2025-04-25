@@ -9,7 +9,7 @@ import json
 import firebase_admin
 from firebase_admin import credentials, db
 from authentication import auth_section, protected_route
-from optimization import identify_available_space, suggest_placement_in_available_space
+from optimization import identify_available_space, suggest_placement_in_available_space, add_objects_to_available_spaces, suggest_additional_fixtures
 from visualization import visualize_room_with_available_spaces
 # cred = credentials.Certificate("firebase_credentials.json") 
 
@@ -28,7 +28,7 @@ from st_supabase_connection import SupabaseConnection
 
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
+st.set_page_config(page_title="Floorplan Generator and Visualizer", page_icon=":house:")
 # Connect to the database
 try:
     # Initialize connection.
@@ -67,7 +67,6 @@ def save_data(room_sizes, positions, doors, review, is_enough_path, space, overa
         objects = []
         objects_positions = []
         for position in positions:
-            print(position)
             if isinstance(position, (list, tuple)) and len(position) >= 8:
                 objects.append({
                     "name": position[5],
@@ -201,7 +200,7 @@ else:
         st.image(image_path, caption=f"Selected door position: {selected_door_type}", use_column_width=True)
     windows_doors = []
     isTrue = False
-
+    
     positions = []
     # Generate Button for 3D Visualization
     if st.button("Generate 3D Plot"):
@@ -244,7 +243,7 @@ else:
 
 
         # Find available spaces (excluding shadows by default)
-        available_spaces = identify_available_space(positions, (room_width, room_depth), grid_size=1)
+        available_spaces = identify_available_space(positions, (room_width, room_depth), grid_size=1, include_shadows=True, windows_doors=windows_doors)
 
         # Print the available spaces
         print(f"Found {len(available_spaces)} available spaces:")
@@ -253,37 +252,11 @@ else:
             print(f"Space {i+1}: Position ({x}, {y}), Size: {width}x{depth} cm")
 
         
-        # ### Try to place a new toilet in an available space
-        # suggested_placement = suggest_placement_in_available_space(
-        #     available_spaces, 
-        #     "Toilet", 
-        #     OBJECT_TYPES
-        # )
-
-        # if suggested_placement:
-        #     x, y, width, depth = suggested_placement
-        #     print(f"Suggested toilet placement: Position ({x}, {y}), Size: {width}x{depth} cm")
-            
-        #     # You could then add this to your placed_objects list
-        #     # (You'd need to add height and shadow values based on your object types)
-        #     height =  OBJECT_TYPES["toilet"]["optimal_size"][2]
-        #     shadow = OBJECT_TYPES["toilet"]["shadow_space"] # Example shadow values
-        #     new_object = (x, y, width, depth, height, 0, 0, 0, shadow)
-        #     placed_objects.append(new_object)
-        #     positions.append(new_object)
-
-        # else:
-        #     print("No suitable space found for a toilet")
-
-        ###
-
-
-
-
+        
 
         # visualization
         fig = visualize_room_with_shadows_3d(bathroom_size, positions, windows_doors)
-        isTrue = check_valid_room( positions)
+        isTrue = check_valid_room(positions)
         if isTrue == True:
             st.success("The room is valid.")
         else:
@@ -293,25 +266,103 @@ else:
         fig2 = draw_2d_floorplan(bathroom_size, positions, windows_doors, selected_door_way)
         st.pyplot(fig2)
         st.session_state.positions = positions
+        st.session_state.bathroom_size = bathroom_size
         st.session_state.windows_doors = windows_doors
         st.session_state.fig = fig
         st.session_state.fig2 = fig2
         st.session_state.isTrue = isTrue
         st.session_state.positions = positions
         st.session_state.windows_doors = windows_doors
+        st.session_state.available_spaces = available_spaces
+        st.session_state.selected_fixtures = None
+        
+        # Display available spaces visualization
+        st.subheader("Available Space Analysis")
+        st.write(f"Found {len(available_spaces)} available spaces")
         figvis = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces)
         st.pyplot(figvis)
         st.session_state.figvis = figvis
+        
+        # Show space utilization metrics
+        if available_spaces:
+            total_room_area = room_width * room_depth
+            used_area = sum(obj[2] * obj[3] for obj in positions)  # width * depth for each object
+            available_area = sum(space[2] * space[3] for space in available_spaces)
+            
+            st.subheader("Space Utilization Metrics")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Room Area", f"{total_room_area} cm²")
+            with col2:
+                st.metric("Used Area", f"{used_area} cm² ({int(used_area/total_room_area*100)}%)")
+            with col3:
+                st.metric("Available Area", f"{available_area} cm² ({int(available_area/total_room_area*100)}%)")
     
     elif st.session_state.fig and st.session_state.fig2:
         st.pyplot(st.session_state.fig)
         st.pyplot(st.session_state.fig2)
         st.pyplot(st.session_state.figvis)
 
+    if st.button("Suggest Fixtures"):	
+        suggestions = []
+        available_spaces = st.session_state.available_spaces
+        positions = st.session_state.positions
+        
+        #if 'suggestions' not in st.session_state:
+        suggestions = suggest_additional_fixtures(positions, (room_width, room_depth), OBJECT_TYPES, available_spaces)
+        st.session_state.suggestions = suggestions
 
+        # Create a selection for the user
+        fixture_options = list(suggestions["suggestions"].keys())
+        selected_fixtures = fixture_options[:min(2, len(fixture_options))]
+        #selected_fixtures = st.multiselect(
+        #    "Select additional fixtures to add", 
+        #    fixture_options,
+        #    default=selected_fixtures
+        #)
+        st.session_state.selected_fixtures = selected_fixtures
+            # Get suggestions first
+    if "suggestions" in st.session_state:
+        st.subheader("Suggested Additional Fixtures")
+        suggestions = st.session_state.suggestions
+        selected_fixtures = st.session_state.selected_fixtures
+        fixture_options = list(suggestions["suggestions"].keys())
+        selected_fixtures = st.multiselect(
+            "Select additional fixtures to add", 
+            fixture_options,
+            default=selected_fixtures
+        )
+        st.session_state.selected_fixtures = selected_fixtures           
+    # Always show the button if there are fixture options
+    add_button = st.button("Add Selected Fixtures")
+                
+    if st.session_state.selected_fixtures and add_button:
+        # Add selected fixtures to the layout
+        updated_positions, added_objects = add_objects_to_available_spaces(
+                positions, 
+                (room_width, room_depth), 
+                OBJECT_TYPES,
+                priority_objects=st.session_state.selected_fixtures,
+                available_spaces=st.session_state.available_spaces
+            )
 
-
-
+        if added_objects:
+            st.success(f"Added {len(added_objects)} new fixtures to the layout!")
+            positions = updated_positions + st.session_state.positions
+            windows_doors = st.session_state.windows_doors  
+                        
+            # Update available spaces after adding objects
+            available_spaces = identify_available_space(positions, (room_width, room_depth), include_shadows=True, windows_doors=windows_doors)
+            fignew = visualize_room_with_shadows_3d((room_width, room_depth), positions, windows_doors)
+            st.pyplot(fignew)
+            fignew2 = draw_2d_floorplan((room_width, room_depth), positions, windows_doors, selected_door_way)
+            st.pyplot(fignew2)
+            fignewvis = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces)
+            st.pyplot(fignewvis)
+        else:
+            st.warning("Could not add any of the selected fixtures due to space constraints.")
+		
+		
     is_enough_path = st.checkbox("Is there enough pathway space?")
     is_everything = st.checkbox("Is everything placed?")
     space = st.slider("Space Utilization", 0,10,5)

@@ -131,7 +131,7 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
             if obj_type == "washing_machine" or obj_type == "dryer" or obj_type == "washing_machine_dryer":
                 # randomly 45 or 60
                 orig_obj_width= random.choice([45,60])
-                orig_obj_depth = orig_obj_width
+                orig_obj_depth = 60
             for _ in range(attempt):  # Try 100 placements
                 obj_width, obj_depth, obj_height = orig_obj_width, orig_obj_depth,orig_obj_height
                 if obj_def["must_be_corner"]:
