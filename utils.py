@@ -1,6 +1,10 @@
 
 import random
-
+import json
+import streamlit as st
+OBJECT_TYPES = []
+with open('object_types.json') as f:
+    OBJECT_TYPES = json.load(f)
 # check which wall is the object is on
 def check_which_wall(new_rect, room_width, room_depth):
     x,y,width,depth = new_rect
@@ -48,6 +52,7 @@ def check_which_wall_for_door(new_rect, room_width, room_depth):
 # only modify shadow values
 def convert_values(rect, shadow, wall):
     """Converts the values of the object and shadow based on the wall it is closest to."""
+    
     x, y, width, depth = rect
 
     shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
@@ -114,7 +119,51 @@ def convert_values(rect, shadow, wall):
         return x, y, width, depth, new_shadow_top, new_shadow_left, new_shadow_right, new_shadow_bottom
     else:
         return x, y, width, depth, shadow_top, shadow_left, shadow_right, shadow_bottom
+def convert_shadows(shadows, wall):
+    shadow_top, shadow_left, shadow_right, shadow_bottom = shadows
+    if wall == "top":
+        new_shadow_left = shadow_right
+        new_shadow_right = shadow_left
+        new_shadow_bottom = shadow_top
+        new_shadow_top = shadow_bottom
+        return new_shadow_top, new_shadow_left, new_shadow_right, new_shadow_bottom
+    elif wall == "right":
+        new_shadow_right = shadow_bottom
+        new_shadow_top = shadow_right
+        new_shadow_bottom = shadow_left
+        new_shadow_left = shadow_top
+        return  new_shadow_top, new_shadow_left,new_shadow_right, new_shadow_bottom
+    elif wall == "left":
+        new_shadow_left = shadow_bottom
+        new_shadow_top = shadow_left
+        new_shadow_bottom = shadow_right
+        new_shadow_right = shadow_top
+        return   new_shadow_top, new_shadow_left,new_shadow_right, new_shadow_bottom 
+    elif wall == "bottom":
+        return shadow_top, shadow_left, shadow_right, shadow_bottom
+    elif wall == "top-left":
+        new_shadow_top = 0
+        new_shadow_left = 0
+
+        return new_shadow_top, new_shadow_left, shadow_right, shadow_bottom
         
+    elif wall == "top-right":
+        new_shadow_top = 0
+        new_shadow_right = 0
+
+        return  new_shadow_top, shadow_left, new_shadow_right, shadow_bottom
+    elif wall == "bottom-left":
+        new_shadow_left = 0
+        new_shadow_bottom = 0
+
+        return shadow_top, new_shadow_left, shadow_right, new_shadow_bottom
+    elif wall == "bottom-right":
+        new_shadow_right = 0
+        new_shadow_bottom = 0
+
+        return shadow_top, shadow_left, new_shadow_right, new_shadow_bottom
+    else:
+        return  shadow_top, shadow_left, shadow_right, shadow_bottom       
 # Check if two rectangles overlap
 def check_overlap(rect1, rect2):
     rect1_left = rect1[0]
@@ -185,6 +234,96 @@ def is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_de
         # check if the existing object's shadow overlaps the new object
         if check_overlap(r_shadow_space[0], object_space[0]):
             return False
+    
+
+    
+    return True  # Placement is valid
+def check_bathtub_shadow(new_rect,placed_rects, shadow_space,room_width, room_depth, positions, obj_type):
+    if obj_type == "bathtub":
+        return True
+    # search for bathtub
+    # check if there is a bathtub
+    bathtub_rect = None
+    shadow_area = 0
+    required_shadow_area = 60 * 90
+    bathroom_shadow = (0,0,0,0)
+    # search for bathtub
+
+    for object_position in positions:
+        if object_position[5] == "Bathtub":
+            bathtub_rect = object_position[0:4]
+            x,y,width,depth = bathtub_rect
+                
+            #convert values
+            if width > depth:
+                shadow_area = width * 90
+                bathroom_shadow = (90,0,0,90)
+                bathroom_shadow_space = (x-90, y-0, width, depth+180)
+            else:
+                shadow_area =  depth * 90
+                bathroom_shadow = (0,90,90,0)
+                bathroom_shadow_space = (x-0, y-90, width+180, depth)
+
+            if shadow_area < required_shadow_area:
+                return False
+    for object_position in positions:
+        if object_position[5] != "Bathtub":
+            rect = object_position[0:4]
+            x,y,width,depth = rect
+            rect_shadow_space = (i for i in object_position[8])
+            #convert values
+            rect_area = width * depth   
+            if check_overlap(rect, bathroom_shadow_space):
+                # calculate the overlap area
+                overlap_area = calculate_overlap_area(bathroom_shadow_space,rect )
+                shadow_area = shadow_area - overlap_area 
+    overlap_area = calculate_overlap_area(bathroom_shadow_space,new_rect )
+    shadow_area = shadow_area - overlap_area
+    if shadow_area < required_shadow_area:
+        return False    
+    return True
+
+
+def is_valid_placement_without_converting(new_rect, placed_rects, shadow_space, room_width, room_depth):
+    """Ensures the new object does not overlap with existing objects or shadows."""
+
+    
+    shadow_top, shadow_left, shadow_right, shadow_bottom = shadow_space  # Extract shadow values
+    x,y,width,depth = new_rect
+    new_rect_wall = check_which_wall(new_rect, room_width, room_depth)
+    # check that the object actually fits in the room
+    if x < 0 or y < 0 or x + depth > room_width or y + width > room_depth:
+        return False  # Object extends outside the room → INVALID
+    # create squares for shadow space
+    if shadow_top == 0 and shadow_left == 0 and shadow_right == 0 and shadow_bottom == 0:
+        shadow_space = [(x, y, width, depth)]
+    else:
+        shadow_space = [(x - shadow_top, y - shadow_left, width + shadow_left + shadow_right, depth + shadow_top + shadow_bottom)]
+    object_space = [(x, y, width, depth)]
+    
+    for rect in placed_rects:
+        rx, ry, r_width, r_depth, r_shadow = rect  # Each placed rect has shadow info
+        rect_sizes = (rx, ry, r_width, r_depth)
+        
+        r_top_shadow, r_left_shadow, r_right_shadow, r_bottom_shadow= r_shadow
+        placed_rect_wall = check_which_wall(rect_sizes, room_width, room_depth)
+        # convert values
+        if r_top_shadow == 0 and r_left_shadow == 0 and r_right_shadow == 0 and r_bottom_shadow == 0:
+            r_shadow_space = [(rx, ry, r_width, r_depth)]
+        else:
+            r_shadow_space = [(rx - r_top_shadow, ry - r_left_shadow, r_width + r_left_shadow + r_right_shadow, r_depth + r_top_shadow + r_bottom_shadow)]
+        r_object_space = [(rx, ry, r_width, r_depth)]
+
+        
+        # check if the actual objects overlap (STRICT)
+        if check_overlap(object_space[0], r_object_space[0]):
+            return False  # Objects themselves overlap → INVALID
+        # check if the new object's shadow overlaps an existing OBJECT (STRICT) 
+        if check_overlap(shadow_space[0], r_object_space[0]):
+            return False
+        # check if the existing object's shadow overlaps the new object
+        if check_overlap(r_shadow_space[0], object_space[0]):
+            return False
         
     return True  # Placement is valid
 
@@ -217,7 +356,7 @@ def windows_doors_overlap(windows_doors, x, y, z,width, depth,  room_width, room
     door_shadow=75
     isValid = False
     for wd in windows_doors:
-        name, position, wx, wy, wwidth,wheight,parapet = wd
+        name, position, wx, wy, wwidth,wheight,parapet , way= wd
         
         # Only check shadow for doors
         if "door" in name.lower():
@@ -251,7 +390,6 @@ def check_distance_from_wall(rect, room_width, room_depth,wall, shadow):
     """Check the distance of the object from the wall."""
     x,y,width,depth = rect
     shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
-    print(wall)
     if (wall == "top" or wall == "bottom"):
         dist_top =31
         dist_left = y - shadow_left
@@ -355,3 +493,33 @@ def resize_object(rect,room_width, room_depth, type):
     new_x, new_y , new_width, new_depth = reduce_size(conv_placed_obj, type, (min_width,max_width, min_depth,max_depth))
     
     return new_x, new_y, new_width, new_depth
+def calculate_overlap_area(rect1, rect2):
+    x1, y1, width1, depth1 = rect1
+    x2, y2, width2, depth2 = rect2
+    # calculate the overlap area
+    overlap_x = max(0, min(x1 + width1, x2 + width2) - max(x1, x2))
+    overlap_y = max(0, min(y1 + depth1, y2 + depth2) - max(y1, y2))
+    return overlap_x * overlap_y
+    
+def is_corner_placement_sink(x, y, room_width, room_depth,  sink_width, sink_depth, corner_threshold=50,):
+    """
+    Check if an object is placed in a corner of the room.
+    
+    Args:
+        x (int): X coordinate of the object
+        y (int): Y coordinate of the object
+        room_width (int): Width of the room
+        room_depth (int): Depth of the room
+        corner_threshold (int): Distance from walls to consider a corner
+        
+    Returns:
+        bool: True if object is in a corner, False otherwise
+    """
+    return (x < corner_threshold)or \
+           (y < corner_threshold) or \
+           (x + sink_depth> room_depth - corner_threshold) or \
+           (y + sink_width> room_width - corner_threshold)
+
+def get_object_type(obj_name):
+    """Get the object type based on the object name."""
+    return next((v for v in OBJECT_TYPES.values() if v["name"] == obj_name), None)

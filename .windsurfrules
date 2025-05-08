@@ -12,3 +12,5 @@
 ### Project specific behaviour
 - You need to add suggestions how to improve the layout generator, give me ideas about optimizations of floorplans
 - search for ideas on how to improve the layout generator on the internet
+- the project use rules while generate floorplans
+- later, i awnt to use a RL agent to optimize the generated floorplans by moving, switching and resizing objects

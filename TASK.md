@@ -75,3 +75,16 @@ Last updated: 2025-04-16
 - Consider performance optimizations for complex room layouts
 - Explore alternative visualization techniques for better realism
 - Research bathroom design best practices for algorithm improvements
+
+## Create more constraints for reward function
+-  if an object not placed on the wall or in the corner when must, that will be always zero point
+- if a sink in the corner, get fewer point
+- if the whole wall is covered, get more point
+- if the whole corner is covered, get more point
+- if sink in on the opposite wall of the door, get more point
+- if toilet in on the opposite wall of the door, get fewer point
+- if the distance between objects is less than 30 cm, get more point
+
+## create a function which resize the objects to bigger size if the space is enough
+
+## Create deep-q network 

@@ -4,13 +4,14 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 from generate_room import fit_objects_in_room
 from visualization import visualize_room_with_shadows_3d, draw_2d_floorplan
-from utils import check_valid_room
+from utils import check_valid_room, check_overlap
 import json
 import firebase_admin
 from firebase_admin import credentials, db
 from authentication import auth_section, protected_route
-from optimization import identify_available_space, suggest_placement_in_available_space, add_objects_to_available_spaces, suggest_additional_fixtures
+from optimization import identify_available_space, suggest_placement_in_available_space, add_objects_to_available_spaces, suggest_additional_fixtures, switch_objects
 from visualization import visualize_room_with_available_spaces
+from optimization import evaluate_room_layout, mark_inaccessible_spaces
 # cred = credentials.Certificate("firebase_credentials.json") 
 
 import psycopg2
@@ -47,7 +48,11 @@ access_token = auth_section(supabase)
 if access_token:
     st.session_state['access_token'] = access_token
 
-
+common_fixtures = [
+        "Toilet", "Sink", "Shower", "Bathtub", "Cabinet", 
+        "Double Sink", "Washing Machine", "Washing Dryer"
+    ]
+st.session_state.common_fixtures = common_fixtures
 
 # Helper: get user-bound supabase client
 from supabase import create_client, Client
@@ -207,24 +212,24 @@ else:
         if selected_door_type == "top":
             y = x
             x = 0
-            if x+door_width > room_depth:
-                x = room_depth - door_width
+            if y+door_width > room_depth:
+                y = room_depth - door_width
         if selected_door_type == "bottom":
             y = x
             x = room_width
-            if x+door_width > room_depth:
-                x = room_depth - door_width
+            if y+door_width > room_depth:
+                y = room_depth - door_width
         if selected_door_type == "right":
             y = room_depth 
-            if y+door_width > room_width:
-                y = room_width - door_width
+            if x+door_width > room_width:
+                x = room_width - door_width
         if selected_door_type == "left":
-            if y+door_width > room_width:
-                y = room_width - door_width
+            if x+door_width > room_width:
+                x = room_width - door_width
         selected_objects = [objects_map[obj] for obj in selected_object]
    
         windows_doors = [
-            ("door1", selected_door_type, x, y, door_width, door_height, 0),
+            ("door1", selected_door_type, x, y, door_width, door_height, 0, selected_door_way),
         ]
         bathroom_size = ( room_width,room_depth)  # Width, Depth, Height
 
@@ -242,17 +247,48 @@ else:
             
 
 
-        # Find available spaces (excluding shadows by default)
-        available_spaces = identify_available_space(positions, (room_width, room_depth), grid_size=1, include_shadows=True, windows_doors=windows_doors)
+        # Find available spaces (returns dict with both sets)
+        available_spaces_dict = identify_available_space(positions, (room_width, room_depth), grid_size=1, windows_doors=windows_doors)
+        
+        # Mark which spaces are accessible and which are inaccessible
+        accessible_spaces, inaccessible_spaces = mark_inaccessible_spaces(
+            available_spaces_dict['with_shadow'], 
+            positions, 
+            (room_width, room_depth), 
+            windows_doors, 
+            grid_size=1,
+            min_path_width=30
+        )
 
-        # Print the available spaces
-        print(f"Found {len(available_spaces)} available spaces:")
-        for i, space in enumerate(available_spaces):
+        # check if there is any space that are not overlap with all other spaces
+        for i in range(len(available_spaces_dict['without_shadow'])):
+            not_overlapping_spaces = []
+            for j in range(len(available_spaces_dict['without_shadow'])):
+                if i != j:
+                    overlap = check_overlap(available_spaces_dict['without_shadow'][i], available_spaces_dict['without_shadow'][j])
+                    if not overlap:
+                        not_overlapping_spaces.append(available_spaces_dict['without_shadow'][j])
+            if len(not_overlapping_spaces) == len(available_spaces_dict['without_shadow'])-1:
+                st.warning(f"Warning: The {available_spaces_dict['without_shadow'][i]} space is not overlapping with all other spaces.")
+                
+                
+
+        # You can now use these categorized spaces for different purposes
+        # For example, warn about inaccessible spaces
+        if inaccessible_spaces:
+            st.warning(f"Warning: There are {len(inaccessible_spaces)} inaccessible spaces in the room layout.")
+            st.write(inaccessible_spaces)
+        else:
+            st.success("There are no inaccessible spaces in the room layout.")
+        # Print the available spaces (both sets)
+        print(f"Found {len(available_spaces_dict['with_shadow'])} available spaces (with shadow):")
+        for i, space in enumerate(available_spaces_dict['with_shadow']):
             x, y, width, depth = space
-            print(f"Space {i+1}: Position ({x}, {y}), Size: {width}x{depth} cm")
-
-        
-        
+            print(f"With Shadow Space {i+1}: Position ({x}, {y}), Size: {width}x{depth} cm")
+        print(f"Found {len(available_spaces_dict['without_shadow'])} available spaces (without shadow):")
+        for i, space in enumerate(available_spaces_dict['without_shadow']):
+            x, y, width, depth = space
+            print(f"No Shadow Space {i+1}: Position ({x}, {y}), Size: {width}x{depth} cm")
 
         # visualization
         fig = visualize_room_with_shadows_3d(bathroom_size, positions, windows_doors)
@@ -265,51 +301,73 @@ else:
         st.pyplot(fig)
         fig2 = draw_2d_floorplan(bathroom_size, positions, windows_doors, selected_door_way)
         st.pyplot(fig2)
+        #figvis = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces_dict)
+        #st.pyplot(figvis)
         st.session_state.positions = positions
         st.session_state.bathroom_size = bathroom_size
         st.session_state.windows_doors = windows_doors
         st.session_state.fig = fig
         st.session_state.fig2 = fig2
-        st.session_state.isTrue = isTrue
-        st.session_state.positions = positions
-        st.session_state.windows_doors = windows_doors
-        st.session_state.available_spaces = available_spaces
-        st.session_state.selected_fixtures = None
+        #st.session_state.figvis = figvis
+        st.session_state.available_spaces_dict = available_spaces_dict
         
         # Display available spaces visualization
         st.subheader("Available Space Analysis")
-        st.write(f"Found {len(available_spaces)} available spaces")
-        figvis = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces)
-        st.pyplot(figvis)
-        st.session_state.figvis = figvis
-        
+        st.write(f"Found {len(available_spaces_dict['with_shadow'])} available spaces (with shadow) and {len(available_spaces_dict['without_shadow'])} available spaces (without shadow)")
+        figvis_with_shadow = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces_dict['with_shadow'], shadow = True)
+        st.pyplot(figvis_with_shadow)
+        st.session_state.figvis_with_shadow = figvis_with_shadow
+        figvis_without_shadow = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces_dict['without_shadow'], shadow = False)
+        st.pyplot(figvis_without_shadow)
+        st.session_state.figvis_without_shadow = figvis_without_shadow
+
+        total_score, detailed_scores = evaluate_room_layout(st.session_state.positions, (room_width, room_depth), OBJECT_TYPES)
+        st.write(total_score, detailed_scores)
         # Show space utilization metrics
-        if available_spaces:
+        if available_spaces_dict['with_shadow'] or available_spaces_dict['without_shadow']:
             total_room_area = room_width * room_depth
             used_area = sum(obj[2] * obj[3] for obj in positions)  # width * depth for each object
-            available_area = sum(space[2] * space[3] for space in available_spaces)
+            available_area_with_shadow = sum(space[2] * space[3] for space in available_spaces_dict['with_shadow'])
+            available_area_without_shadow = sum(space[2] * space[3] for space in available_spaces_dict['without_shadow'])
             
             st.subheader("Space Utilization Metrics")
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
+            col3, col4 = st.columns(2)
             with col1:
                 st.metric("Total Room Area", f"{total_room_area} cm²")
             with col2:
                 st.metric("Used Area", f"{used_area} cm² ({int(used_area/total_room_area*100)}%)")
             with col3:
-                st.metric("Available Area", f"{available_area} cm² ({int(available_area/total_room_area*100)}%)")
+                st.metric("Available Area (with shadow)", f"{available_area_with_shadow} cm² ({int(available_area_with_shadow/total_room_area*100)}%)")
+            with col4:
+                st.metric("Available Area (without shadow)", f"{available_area_without_shadow} cm² ({int(available_area_without_shadow/total_room_area*100)}%)")
     
     elif st.session_state.fig and st.session_state.fig2:
         st.pyplot(st.session_state.fig)
         st.pyplot(st.session_state.fig2)
-        st.pyplot(st.session_state.figvis)
+        st.pyplot(st.session_state.figvis_with_shadow)
+        st.pyplot(st.session_state.figvis_without_shadow)
+        st.write(st.session_state.positions)
+
+            
+
+
+
+   
+
+
+
+
+
+
 
     if st.button("Suggest Fixtures"):	
         suggestions = []
-        available_spaces = st.session_state.available_spaces
+        available_spaces_dict = st.session_state.available_spaces_dict
         positions = st.session_state.positions
-        
+        bathroom_size = st.session_state.bathroom_size
         #if 'suggestions' not in st.session_state:
-        suggestions = suggest_additional_fixtures(positions, (room_width, room_depth), OBJECT_TYPES, available_spaces)
+        suggestions = suggest_additional_fixtures(positions, bathroom_size, OBJECT_TYPES, available_spaces_dict['with_shadow'], available_spaces_dict['without_shadow'])
         st.session_state.suggestions = suggestions
 
         # Create a selection for the user
@@ -343,7 +401,7 @@ else:
                 (room_width, room_depth), 
                 OBJECT_TYPES,
                 priority_objects=st.session_state.selected_fixtures,
-                available_spaces=st.session_state.available_spaces
+                available_spaces=st.session_state.available_spaces_dict['with_shadow']
             )
 
         if added_objects:
@@ -352,13 +410,22 @@ else:
             windows_doors = st.session_state.windows_doors  
                         
             # Update available spaces after adding objects
-            available_spaces = identify_available_space(positions, (room_width, room_depth), include_shadows=True, windows_doors=windows_doors)
+            available_spaces_dict = identify_available_space(positions, (room_width, room_depth),  windows_doors=windows_doors) #true
             fignew = visualize_room_with_shadows_3d((room_width, room_depth), positions, windows_doors)
             st.pyplot(fignew)
             fignew2 = draw_2d_floorplan((room_width, room_depth), positions, windows_doors, selected_door_way)
             st.pyplot(fignew2)
-            fignewvis = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces)
+            fignewvis = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces_dict['with_shadow'], shadow=True)
             st.pyplot(fignewvis)
+            fignewvis2 = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces_dict['without_shadow'], shadow=False)
+            st.pyplot(fignewvis2)
+            st.session_state.new_positions = positions
+            st.session_state.fignew = fignew
+            st.session_state.fignew2 = fignew2
+            st.session_state.fignewvis = fignewvis
+            st.session_state.fignewvis2 = fignewvis2
+            
+            
         else:
             st.warning("Could not add any of the selected fixtures due to space constraints.")
 		
@@ -375,6 +442,3 @@ else:
         
 
 
-    
-# TODO bottom door cant work
-# TODO Too much conversion of the objectss

@@ -1,4 +1,3 @@
-
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
@@ -25,7 +24,7 @@ object_colors = {
 def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shadow=75):
     # Draw windows and doors
     for item in windows_doors:
-        id_, wall, x, y,  width,height, parapet = item
+        id_, wall, x, y,  width,height, parapet, way = item
         
         # Calculate vertices based on wall placement
         if wall == "top":
@@ -256,7 +255,7 @@ def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
     ax.plot([0, 0], [0, room_width], "k-", linewidth=3)  # Left wall
     ax.plot([room_depth, room_depth], [0, room_width], "k-", linewidth=3)  # Right wall
     for door in doors:
-        name, selected_door_type, x, y, door_width, door_height, shadow = door
+        name, selected_door_type, x, y, door_width, door_height, shadow, way = door
         shadow = door_width
         alpha = 0.3
         name = "Outward Door"
@@ -307,43 +306,53 @@ def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
 
 
 
-def visualize_room_with_available_spaces(placed_objects, room_sizes, available_spaces):
+def visualize_room_with_available_spaces(placed_objects, room_sizes, available_spaces_dict, shadow):
+    """
+    Visualizes the room with placed objects and two sets of available spaces:
+    - with shadow (orange)
+    - without shadow (green)
+    Args:
+        placed_objects (list): List of placed objects.
+        room_sizes (tuple): (width, depth)
+        available_spaces_dict (dict): {'with_shadow': [...], 'without_shadow': [...]} as returned by identify_available_space
+    Returns:
+        matplotlib.figure.Figure: The visualization figure
+    """
     room_width, room_depth = room_sizes
-    
-    # Create figure and axes
     fig, ax = plt.subplots(figsize=((room_depth/100)*10, (room_width/100)*10))
-    
     # Draw room boundaries
-    ax.add_patch(patches.Rectangle((0, 0), room_depth, room_width, 
-                                   fill=False, edgecolor='black', linewidth=2))
-    
+    ax.add_patch(patches.Rectangle((0, 0), room_depth, room_width, fill=False, edgecolor='black', linewidth=2))
     # Draw placed objects
     for obj in placed_objects:
-        x, y, width, depth, height, _, _, _, _ = obj
-        ax.add_patch(patches.Rectangle((y, x), width, depth, 
-                                       fill=True, color='blue', alpha=0.7))
-    
-    # Draw available spaces
-    for space in available_spaces:
-        x, y, width, depth = space
-        ax.add_patch(patches.Rectangle((y, x), width, depth, 
-                                       fill=True, color='green', alpha=0.3))
-    
+        x, y, width, depth, height, *_ = obj
+        ax.add_patch(patches.Rectangle((y, x), width, depth, fill=True, color='blue', alpha=0.7))
+    # Draw available spaces WITHOUT shadow (green)
+    if not shadow:
+        for space in available_spaces_dict:
+            x, y, width, depth = space
+            ax.add_patch(patches.Rectangle((y, x), width, depth, fill=True, color='green', alpha=0.3, label='Available (no shadow)'))
+    # Draw available spaces WITH shadow (orange, with some transparency)
+    else:
+        for space in available_spaces_dict:
+            x, y, width, depth = space
+            ax.add_patch(patches.Rectangle((y, x), width, depth, fill=True, color='orange', alpha=0.3, label='Available (with shadow)'))
     # Set limits and labels
     ax.set_xlim(0, room_depth)
     ax.set_ylim(0, room_width)
     ax.set_xlabel('Width (cm)')
     ax.set_ylabel('Depth (cm)')
     ax.set_title('Room Layout with Available Spaces')
-    
-    # Add legend
-    blue_patch = patches.Patch(color='blue', alpha=0.7, label='Placed Objects')
-    green_patch = patches.Patch(color='green', alpha=0.3, label='Available Spaces')
-    ax.legend(handles=[blue_patch, green_patch])
-    # rotate the fig
+    # Add legend (avoid duplicate labels)
+    handles = [
+        patches.Patch(color='blue', alpha=0.7, label='Placed Objects'),
+        patches.Patch(color='green', alpha=0.3, label='Available (no shadow)'),
+        patches.Patch(color='orange', alpha=0.3, label='Available (with shadow)')
+    ]
+    ax.legend(handles=handles)
     ax.set_aspect('equal')
     ax.invert_yaxis()
-    ## rotate 90 degree
-
-
     return fig
+
+
+
+
