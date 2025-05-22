@@ -1,8 +1,9 @@
 from utils import check_which_wall,check_distance,adjust_object_placement, check_distance_from_wall, convert_values, adjust_object_placement_pos, is_valid_placement, convert_shadows
 import streamlit as st
-from utils import is_corner_placement_sink, get_object_type, is_valid_placement_without_converting
-
-def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_doors=None):
+from utils import is_corner_placement_sink, get_object_type, is_valid_placement_without_converting, get_opposite_wall, check_overlap
+from utils import OBJECT_TYPES
+import numpy as np
+def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_doors=None, requested_objects = []):
     """
     Evaluate the quality of a room layout based on various criteria.
     
@@ -19,7 +20,20 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
     room_width, room_depth = room_sizes
     total_score = 0
     scores = {}
-    
+    # 0. no overlapping objects (10 points), if anything overlaps, score is 0
+    no_overlap_score = 10
+    for obj in placed_objects:
+        x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
+
+        for other_obj in placed_objects:
+            if other_obj != obj:
+                other_x, other_y, other_width, other_depth, other_height, other_name, other_corner, other_against_wall, other_shadow = other_obj
+                if check_overlap((x, y, width, depth), (other_x, other_y, other_width, other_depth)):
+                    no_overlap_score = 0
+
+    scores["no_overlap"] = no_overlap_score
+    total_score += scores["no_overlap"]
+
     # 1. Wall and Corner Constraints (30 points)
     wall_corner_score = 0
     for obj in placed_objects:
@@ -81,7 +95,7 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
         if coverage_percent >= 70:  # Reward for good wall coverage
             wall_coverage_score += 5
             
-    scores["wall_coverage"] = min(wall_coverage_score, 20)
+    scores["wall_coverage"] = min(wall_coverage_score, 10)
     total_score += scores["wall_coverage"]
     
     # 4. Corner Coverage (10 points)
@@ -102,27 +116,27 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
             
     scores["corner_coverage"] = corner_coverage_score
     total_score += scores["corner_coverage"]
-    
     # 5. Door Position Constraints (10 points)
-    door_constraint_score = 0
+    door_sink_score = 0
     if windows_doors:
         for obj in placed_objects:
             x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
             for door in windows_doors:
-                door_x, door_y, door_width, door_depth = door
-                door_wall = check_which_wall(door, room_width, room_depth)
+                door_wall = door[1]
                 obj_wall = check_which_wall((x,y,width,depth), room_width, room_depth)
                 
                 if name == "Sink" and door_wall != obj_wall:
-                    door_constraint_score += 5  # Reward sink opposite door
+                    door_sink_score += 5  # Reward sink opposite door
+                elif name == "Toilet" and get_opposite_wall(door_wall) != obj_wall:
+                    door_sink_score += 5  # Reward toilet not opposite door
                 elif name == "Toilet" and door_wall == obj_wall:
-                    door_constraint_score -= 5  # Penalize toilet opposite door
-                    
-    scores["door_constraints"] = max(door_constraint_score, 0)
-    total_score += scores["door_constraints"]
+                    door_sink_score += 5  # Reward toilet SAME door - WE WANT TO HIDE
+    door_sink_score = door_sink_score/15 *10             
+    scores["door_sink"] = max(door_sink_score, 0)
+    total_score += scores["door_sink"]
     
     # 6. Object Spacing (10 points)
-    spacing_score = 10
+    spacing_score = len(placed_objects)*10
     for i, obj1 in enumerate(placed_objects):
         x1, y1, width1, depth1, height1, name1, _, _, shadow1 = obj1
         for j, obj2 in enumerate(placed_objects[i+1:], i+1):
@@ -130,87 +144,40 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
             
             # Calculate minimum distance between objects
             min_dist = min(abs(x1 + width1 - x2), abs(y1 + depth1 - y2))
-            if min_dist < 40 and min_dist > 10:  # Too much free space
-                spacing_score -= 1
+            if min_dist < 30 and min_dist > 10:  # Too much free space
+                spacing_score -= 5
                 
-    scores["spacing"] = max(spacing_score, 0)
+    scores["spacing"] = max(spacing_score/len(placed_objects), 0)
     total_score += scores["spacing"]
     
-    # # 1. Wall constraints (20 points)
-    # wall_constraint_score = 0
-    # for obj in placed_objects:
-    #     x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
-    #     wall = check_which_wall((x,y,width,depth), room_width, room_depth)
-        
-    #     if must_be_against_wall and wall not in ["top", "bottom", "left", "right"]:
-    #         wall_constraint_score += 1
-    #     elif not must_be_against_wall and wall in ["top", "bottom", "left", "right"]:
-    #         wall_constraint_score += 1
-            
-    # scores["wall_constraints"] = min(wall_constraint_score / len(placed_objects) * 20, 20)
-    # total_score += scores["wall_constraints"]
-    
-    # # 2. Corner constraints (20 points)
-    # corner_constraint_score = 0
-    # for obj in placed_objects:
-    #     x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
-        
-    #     if name == "Sink" and is_corner_placement_sink(x, y, room_width, room_depth, width, depth):
-    #         corner_constraint_score -= 1
-    #     elif must_be_corner and is_corner_placement_sink(x, y, room_width, room_depth, width, depth):
-    #         corner_constraint_score += 1
-            
-    # scores["corner_constraints"] = min(max(corner_constraint_score / len(placed_objects) * 20, 0), 20)
-    # total_score += scores["corner_constraints"]
-    
-    # # 3. Object spacing (20 points)
-    # spacing_score = 0
-    # for i, obj1 in enumerate(placed_objects):
-    #     x1, y1, width1, depth1, height1, name1, _, _, shadow1 = obj1
-    #     for j, obj2 in enumerate(placed_objects[i+1:], i+1):
-    #         x2, y2, width2, depth2, height2, name2, _, _, shadow2 = obj2
-            
-    #         # Calculate minimum distance between objects
-    #         min_dist = min(abs(x1 + width1 - x2), abs(y1 + depth1 - y2))
-    #         if min_dist < 30:  # Minimum spacing requirement
-    #             spacing_score -= 1
-                
-    # scores["spacing"] = max(20 + spacing_score / len(placed_objects) * 20, 0)
-    # total_score += scores["spacing"]
 
-    # 4. Object size optimization (20 points)
-    size_optimization_score = 0
+    # 7. Requested objects max 10 points
+    requested_score = 0
     for obj in placed_objects:
-        x, y, width, depth, height, name, _, _, _ = obj
-        obj_def= get_object_type(name)
-        if obj_def is None:
-            continue
-        optimal_width, optimal_depth, optimal_height = obj_def["optimal_size"]
-        
-        # Calculate size deviation from optimal
-        width_dev = abs(width - optimal_width) / optimal_width
-        depth_dev = abs(depth - optimal_depth) / optimal_depth
-        height_dev = abs(height - optimal_height) / optimal_height
-        
-        size_score = 1 - (width_dev + depth_dev + height_dev) / 3
-        size_optimization_score += size_score
-        
-    scores["size_optimization"] = min(size_optimization_score / len(placed_objects) * 20, 20)
-    total_score += scores["size_optimization"]
-    
-    # 5. Shadow constraints (20 points)
+        x, y, width, depth, height, name, _, _, shadow = obj
+        if name in requested_objects:
+            requested_score += 1
+
+    scores["requested_objects"] = requested_score/len(requested_objects)*10
+    total_score += scores["requested_objects"]
+
+    # 5. Shadow constraints (10 points)
     shadow_score = 0
     for obj in placed_objects:
         x, y, width, depth, height, name, _, _, shadow = obj
         shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
         
         # Check if shadow overlaps with room boundaries
-        if x - shadow_left >= 0 and y - shadow_bottom >= 0 and \
-           x + width + shadow_right <= room_width and y + depth + shadow_top <= room_depth:
+        if x - shadow_left >= 0 and y - shadow_top >= 0 and \
+           x + width + shadow_right <= room_width and y + depth + shadow_bottom <= room_depth:
             shadow_score += 1
             
-    scores["shadow_constraints"] = min(shadow_score / len(placed_objects) * 20, 20)
+    scores["shadow_constraints"] = min(shadow_score / len(placed_objects) * 10, 10)
     total_score += scores["shadow_constraints"]
+
+    # if scores no overlap is 0, return total score as 0
+    if scores["no_overlap"] == 0:
+        total_score = 0
     
     return total_score, scores
 
@@ -268,6 +235,7 @@ def optimize_sink_corner(placed_obj, room_sizes):
 
 def optimization(placed_obj, room_sizes):
     room_width, room_depth = room_sizes
+    print("optimization")
 
     # First optimize sink placement
     #placed_obj = optimize_sink_corner(placed_obj, room_sizes)
@@ -289,7 +257,7 @@ def optimization(placed_obj, room_sizes):
             dist = {"top":dist_top, "left":dist_left, "right":dist_right, "bottom":dist_bottom}
             # select the wall key with the smallest value
             wall_side,min_dist = min(dist.items(), key=lambda x: x[1])
-            print(_1)
+   
             if min_dist < 30 and _1 != "Sink":
 
                 # convert values
@@ -304,6 +272,8 @@ def optimization(placed_obj, room_sizes):
                     del placed_obj[i]
 
                     placed_obj.insert(i, (new_x, new_y, width, depth, height, _1, _2, _3, shadow))
+                    print("optimized")
+                    print(placed_obj)
             ## TODO kiterjesztés méretnövelés
 
     return placed_obj
@@ -555,21 +525,22 @@ def identify_available_space(placed_obj, room_sizes, grid_size=1, windows_doors=
             for i in range(start_x, end_x):
                 for j in range(start_y, end_y):
                     grid[i][j] = 0
-        for i in windows_doors:
-            id_, wall, x, y,  width,height, parapet, way = i
-            start_x = max(0, (x ) // grid_size)
-            start_y = max(0, (y) // grid_size)
-            end_x = min(grid_width, (x + width) // grid_size )
-            end_y = min(grid_depth, (y + width) // grid_size )
-            if wall == "right":
-                end_y = start_y
-                start_y = start_y - width
-            if wall == "bottom":
-                end_x = start_x
-                start_x = start_x - width
-            for i in range(start_x, end_x):
-                for j in range(start_y, end_y):
-                    grid[i][j] = 0
+        if include_shadows:
+            for i in windows_doors:
+                id_, wall, x, y,  width,height, parapet, way = i
+                start_x = max(0, (x ) // grid_size)
+                start_y = max(0, (y) // grid_size)
+                end_x = min(grid_width, (x + width) // grid_size )
+                end_y = min(grid_depth, (y + width) // grid_size )
+                if wall == "right":
+                    end_y = start_y
+                    start_y = start_y - width
+                if wall == "bottom":
+                    end_x = start_x
+                    start_x = start_x - width
+                for i in range(start_x, end_x):
+                    for j in range(start_y, end_y):
+                        grid[i][j] = 0
         available_spaces = []
         visited = [[False for _ in range(grid_depth)] for _ in range(grid_width)]
         for i in range(grid_width):
@@ -988,8 +959,8 @@ def suggest_additional_fixtures(placed_objects, room_sizes, object_types_dict, a
                 for green_space in available_spaces_without_shadow:
                     gx, gy, gw, gd = green_space
                     if (shadow_x >= gx and shadow_y >= gy and
-                        shadow_x + shadow_w <= gx + gw and
-                        shadow_y + shadow_d <= gy + gd):
+                        shadow_x + shadow_d <= gx + gw and
+                        shadow_y + shadow_w <= gy + gd):
                         shadow_fits = True
                         break
                 if shadow_fits:
@@ -1021,8 +992,8 @@ def suggest_additional_fixtures(placed_objects, room_sizes, object_types_dict, a
                 for green_space in available_spaces_without_shadow:
                     gx, gy, gw, gd = green_space
                     if (shadow_x >= gx and shadow_y >= gy and
-                        shadow_x + shadow_w <= gx + gw and
-                        shadow_y + shadow_d <= gy + gd):
+                        shadow_x + shadow_d <= gx + gw and
+                        shadow_y + shadow_w <= gy + gd):
                         shadow_fits = True
                         break
                 if shadow_fits:
@@ -1083,39 +1054,51 @@ def maximize_object_sizes(positions, room_sizes, object_types_dict, increment=5)
     room_width, room_depth = room_sizes
     
     # Keep trying to expand until no more objects can be expanded
-    while True:
-        any_expanded = False
-        updated_objects = positions.copy()
-        # only keep the x, y, width, depth, shadow
-        objects_in_calculate = [(x, y, width, depth, shadow) for x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow in positions]
-        
-        for i, obj in enumerate(positions):
-            x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
-            obj_def= get_object_type(name)
-            if obj_def is None:
-                continue
-                
-            # Get the object's size range
-            min_width, max_width, min_depth, max_depth, min_height, max_height = obj_def["size_range"]
-            
-            # Check if we can expand in width direction
-            if not must_be_against_wall or check_which_wall((x,y,width,depth), room_width, room_depth) in ["top", "bottom"]:
-                # Try to expand to the right
-                new_width = min(max_width, width + increment)
-                if new_width > width:
-                    # Check if expanded size is valid
-                    if is_valid_placement_without_converting((x, y, new_width, depth), objects_in_calculate, shadow, room_width, room_depth):
-                        updated_objects[i] = (x, y, new_width, depth, height, name, must_be_corner, must_be_against_wall, shadow)
-                        any_expanded = True
-                        st.warning(f"Expanded width of {name} to {new_width}cm")
+    any_expanded = False
+    updated_objects = positions.copy()
+    # only keep the x, y, width, depth, shadow
+    objects_in_calculate = [(x, y, width, depth, shadow) for x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow in positions]
+    print("objects_in_calculate")
+    for i, obj in enumerate(updated_objects):
+        x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
+
+        obj_def= get_object_type(name)
+        if obj_def is None:
+            print("object not found")
+            continue
+        temp = updated_objects.copy()
+        temp.pop(i)    # Get the object's size range
+        temp = [(x, y, width, depth, shadow) for x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow in temp]
+        min_width, max_width, min_depth, max_depth, min_height, max_height = obj_def["size_range"]
+        # st.write(f"Object {name} size range: {min_width}x{min_depth}x{min_height} to {max_width}x{max_depth}x{max_height}")
+        # Check if we can expand in width direction
+        wall = check_which_wall((x,y,width,depth), room_width, room_depth)
+
+        if not must_be_against_wall or wall in ["top", "bottom"] or width > depth :
+            # Try to expand to the right
+            new_width = width + increment
+            new_width = min(max_width, new_width)
+            print("increment width")
+
+            if new_width > width:
+
+                # Check if expanded size is valid
+                if is_valid_placement_without_converting((x, y, new_width, depth), temp, shadow, room_width, room_depth):
+                    updated_objects[i] = (x, y, new_width, depth, height, name, must_be_corner, must_be_against_wall, shadow)
+                    any_expanded = True
+                    st.warning(f"Expanded width of {name} to {new_width}cm")
                         
-            # Check if we can expand in depth direction
-            if not must_be_against_wall or check_which_wall((x,y,width,depth), room_width, room_depth) in ["left", "right"]:
+        # Check if we can expand in depth direction
+        wall = check_which_wall((x,y,width,depth), room_width, room_depth)
+        if not must_be_against_wall or wall in ["left", "right"] or width < depth:
                 # Try to expand downwards
-                new_depth = min(max_depth, depth + increment)
+                new_depth = depth + increment
+                new_depth = min(max_depth, new_depth)
+                print("increment depth")
+ 
                 if new_depth > depth:
                     # Check if expanded size is valid
-                    if is_valid_placement_without_converting((x, y, width, new_depth), objects_in_calculate, shadow, room_width, room_depth):
+                    if is_valid_placement_without_converting((x, y, width, new_depth), temp, shadow, room_width, room_depth):
                         updated_objects[i] = (x, y, width, new_depth, height, name, must_be_corner, must_be_against_wall, shadow)
                         any_expanded = True
                         st.warning(f"Expanded depth of {name} to {new_depth}cm")
@@ -1126,7 +1109,9 @@ def maximize_object_sizes(positions, room_sizes, object_types_dict, increment=5)
             
         # Update positions for next iteration
         positions = updated_objects.copy()
-        
+        print("updated_objects")
+        for i in updated_objects:
+            print(i)
     return updated_objects
 
 def switch_objects(positions, object_types_dict, room_sizes, selected_obj_idx, new_object_name):
@@ -1315,3 +1300,305 @@ def mark_inaccessible_spaces(available_spaces, placed_objects, room_sizes, windo
             inaccessible_spaces.append(space)
     
     return accessible_spaces, inaccessible_spaces
+
+
+def fill_wall_with_cabinets(object_positions, room_size, min_cabinet_width=30, min_cabinet_depth=30, max_cabinet_width=100, max_cabinet_depth=40):
+    """
+    Fill remaining wall spaces with cabinets, placing them along walls while avoiding overlaps.
+    
+    Args:
+        object_positions: List of tuples (x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow)
+        room_size: Tuple (width, height) in cm (x is horizontal, y is vertical, origin at top-left)
+        min_cabinet_width: Minimum width for a cabinet (default: 30cm)
+        min_cabinet_depth: Minimum depth for a cabinet (default: 30cm)
+        max_cabinet_width: Maximum width for a cabinet (default: 100cm)
+        max_cabinet_depth: Maximum depth for a cabinet (default: 40cm)
+        
+    Returns:
+        Updated object_positions with added cabinets
+    """
+    room_width, room_depth = room_size
+    cabinet_def = OBJECT_TYPES.get("cabinet", {
+        "name": "Cabinet",
+        "must_be_corner": False,
+        "shadow_space": [0, 0, 0, 0],
+        "size_range": [min_cabinet_width, max_cabinet_width, min_cabinet_depth, max_cabinet_depth, 40, 100],
+        "optimal_size": [min(60, max_cabinet_width), min(30, max_cabinet_depth), 80],
+        "must_be_against_wall": True
+    })
+    
+    # Create a list to store existing object boundaries
+    existing_objects = []
+    for obj in object_positions:
+        x, y, width, depth, height, name, _, _, shadow = obj
+        # Expand the object's footprint by its shadow space
+        shadow_left, shadow_right, shadow_top, shadow_bottom = shadow if shadow else (0, 0, 0, 0)
+        x1 = max(0, x - shadow_left)
+        y1 = max(0, y - shadow_top)
+        x2 = min(room_width, x + width + shadow_right)
+        y2 = min(room_depth, y + depth + shadow_bottom)
+        existing_objects.append((x1, y1, x2, y2))
+    
+    # Define wall positions and their normal directions
+    # Each wall is (name, start, end, position, dx, dy)
+    walls = [
+        ("top", 0, room_depth, 0, 0, 1),      # y=0, facing down
+        ("bottom", 0, room_depth, room_width, 0, -1),  # y=room_depth, facing up
+        ("left", 0, room_width, 0, 1, 0),     # x=0, facing right
+        ("right", 0, room_width, room_depth, -1, 0)    # x=room_width, facing left
+    ]
+    
+    # Try to place cabinets along each wall
+    for wall_name, wall_start, wall_end, wall_pos, dx, dy in walls:
+        if wall_name in ["top", "bottom"]:
+            # Horizontal walls (top, bottom)
+            for x in range(0, room_width, min_cabinet_width):
+                # Try to place a cabinet starting at x
+                cabinet_width = min(max_cabinet_width, room_width - x)
+                if cabinet_width < min_cabinet_width:
+                    continue
+                
+                # Calculate position based on wall
+                if wall_name == "top":
+                    y = 0
+                    cabinet_depth = min(max_cabinet_depth, room_depth // 4)  # Don't take too much depth
+                else:  # bottom
+                    y = room_depth - min(max_cabinet_depth, room_depth // 4)
+                    cabinet_depth = min(max_cabinet_depth, room_depth // 4)
+                
+                # Check for overlaps with existing objects
+                cabinet_rect = (x, y, x + cabinet_width, y + cabinet_depth if wall_name == "top" else y + cabinet_depth)
+                
+                if not any(rects_overlap(cabinet_rect, obj_rect) for obj_rect in existing_objects):
+                    # Add the cabinet
+                    object_positions.append((
+                        x, y, cabinet_width, cabinet_depth, 
+                        cabinet_def["optimal_size"][2],
+                        cabinet_def["name"], 
+                        False, True, 
+                        [0, 0, 0, 0]
+                    ))
+                    # Add to existing objects to prevent overlaps
+                    existing_objects.append(cabinet_rect)
+                    print(f"Added {cabinet_width}x{cabinet_depth}cm cabinet at ({x}, {y}) on {wall_name} wall")
+        
+        else:
+            # Vertical walls (left, right)
+            for y in range(0, room_depth, min_cabinet_width):
+                # Try to place a cabinet starting at y
+                cabinet_height = min(max_cabinet_width, room_depth - y)
+                if cabinet_height < min_cabinet_width:
+                    continue
+                
+                # Calculate position based on wall
+                if wall_name == "left":
+                    x = 0
+                    cabinet_width = min(max_cabinet_depth, room_width // 4)
+                else:  # right
+                    x = room_width - min(max_cabinet_depth, room_width // 4)
+                    cabinet_width = min(max_cabinet_depth, room_width // 4)
+                
+                # Check for overlaps with existing objects
+                cabinet_rect = (x, y, x + cabinet_width, y + cabinet_height)
+            
+                if not any(rects_overlap(cabinet_rect, obj_rect) for obj_rect in existing_objects):
+                    # Add the cabinet
+                    object_positions.append((
+                        x, y, cabinet_width, cabinet_height, 
+                        cabinet_def["optimal_size"][2],
+                        cabinet_def["name"], 
+                        False, True, 
+                        [0, 0, 0, 0]
+                    ))
+                    # Add to existing objects to prevent overlaps
+                    existing_objects.append(cabinet_rect)
+                    print(f"Added {cabinet_width}x{cabinet_height}cm cabinet at ({x}, {y}) on {wall_name} wall")
+    
+    return object_positions
+
+def rects_overlap(rect1, rect2):
+    """Check if two rectangles overlap"""
+    x1, y1, x2, y2 = rect1
+    x3, y3, x4, y4 = rect2
+    return not (x2 <= x3 or x1 >= x4 or y2 <= y3 or y1 >= y4)
+
+
+def place_cabinets_against_walls(object_positions, room_size, doors, min_cabinet_width=30, min_cabinet_depth=30, max_cabinet_width=100, max_cabinet_depth=40):
+    """
+    Fill the room with cabinets against walls while avoiding overlaps with existing objects, shadows, and doors.
+    
+    Args:
+        object_positions: List of tuples (x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow)
+        room_size: Tuple (width, depth) in cm
+        doors: List of tuples (x, y, width, depth, orientation) representing door positions and dimensions
+        min_cabinet_width: Minimum width for a cabinet (default: 30cm)
+        min_cabinet_depth: Minimum depth for a cabinet (default: 30cm)
+        max_cabinet_width: Maximum width for a cabinet (default: 100cm)
+        max_cabinet_depth: Maximum depth for a cabinet (default: 40cm)
+        
+    Returns:
+        Updated object_positions with added cabinets
+    """
+    room_width, room_depth = room_size
+    cabinet_def = OBJECT_TYPES.get("cabinet", {
+        "name": "Cabinet",
+        "must_be_corner": False,
+        "shadow_space": [0, 0, 0, 0],
+        "size_range": [min_cabinet_width, max_cabinet_width, min_cabinet_depth, max_cabinet_depth, 40, 100],
+        "optimal_size": [min(60, max_cabinet_width), min(30, max_cabinet_depth), 80],
+        "must_be_against_wall": True
+    })
+    
+    # Create a grid to track occupied spaces (1 = occupied, 0 = free)
+    grid = np.zeros((room_depth, room_width), dtype=int)
+    
+    # Mark existing objects and their shadows as occupied in the grid
+    occupied_areas = []
+    for obj in object_positions:
+        x, y, width, depth, height, name, _, _, shadow = obj
+        # Expand the object's footprint by its shadow space
+        conv_x,conv_y,conv_width,conv_depth, conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x,y,width,depth), shadow, check_which_wall((x,y,width,depth), room_width, room_depth)) 
+
+        x1 = max(0, int(conv_x - conv_shadow_left))
+        y1 = max(0, int(conv_y - conv_shadow_top))
+        x2 = min(room_width, int(conv_x + conv_width + conv_shadow_right))
+        y2 = min(room_depth, int(conv_y + conv_depth + conv_shadow_bottom))
+        
+        # Mark this area as occupied
+        grid[x1:x2, y1:y2] = 1
+        occupied_areas.append((x1, y1, x2, y2))
+    
+    # Mark door areas as occupied
+    for door in doors:
+        name, wall,x, y, width, height, _ , _  = door
+        if wall == "top":
+            x1 = int(x)
+            y1 = int(y)
+            x2 = int(x + width)
+            y2 = int(y + width)
+        elif wall == "bottom":
+            x1 = int(x-width)
+            y1 = int(y)
+            x2 = int(x )
+            y2 = int(y + width)
+        elif wall == "left":
+            x1 = int(x)
+            y1 = int(y)
+            x2 = int(x + width)
+            y2 = int(y + width)
+        elif wall == "right":
+            x1 = int(x)
+            y1 = int(y-width)
+            x2 = int(x+width)
+            y2 = int(y)
+        
+        # Add a clearance zone around doors (50cm clearance)
+        door_clearance = 5
+        x1 = max(0, x1 - door_clearance)
+        y1 = max(0, y1 - door_clearance)
+        x2 = min(room_width, x2 + door_clearance)
+        y2 = min(room_depth, y2 + door_clearance)
+        
+        # Mark this area as occupied
+        grid[x1:x2, y1:y2] = 1
+        occupied_areas.append((x1, y1, x2, y2))
+    
+    # Define wall segments to place cabinets
+    wall_segments = [
+        # Each segment is (start_x, start_y, end_x, end_y, direction)
+        # Top wall (left wall in 3D view, x=0)
+        (0, 0, 0, room_depth, 'bottom'),
+        # Bottom wall (right wall in 3D view, x=room_width)
+        (room_width, 0, room_width, room_depth, 'top'),
+        # Left wall (bottom wall in 3D view, y=room_depth)
+        (0, 0, room_width, 0, 'right'),
+        # Right wall (top wall in 3D view, y=0)
+        (0, room_depth, room_width, room_depth, 'left')
+    ]
+    print("Wall segments:")
+    # Place cabinets along each wall segment
+    for start_x, start_y, end_x, end_y, direction in wall_segments:
+        # Determine if this is a horizontal or vertical wall
+        is_horizontal = start_y != end_y
+        
+        if is_horizontal:
+            print("Horizontal wall:", start_x, start_y, end_x, end_y, direction)
+            # Process horizontal wall (top or bottom)
+            # Iterate in small steps to find free spaces
+            for x in range(int(start_y), int(end_y), min_cabinet_width):
+                # Calculate maximum possible width at this position
+                max_possible_width = min(max_cabinet_width, end_x - x)
+                print("Max possible width:", max_possible_width)
+                if max_possible_width < min_cabinet_width:
+                    continue
+                
+                # Calculate y position and depth based on wall direction
+                if direction == 'bottom':  # Top wall
+                    x = 0
+                    cabinet_depth = max_cabinet_depth
+                else:  # Bottom wall
+                    x = room_width - max_cabinet_depth
+                    cabinet_depth = max_cabinet_depth
+                print("Cabinet depth:", cabinet_depth)
+                print("Cabinet width:", max_possible_width)
+                # Create a rectangle representing this cabinet
+                cabinet_x1, cabinet_y1 = x, y
+                cabinet_x2 = x + cabinet_depth
+                cabinet_y2 = y + max_possible_width
+                print(cabinet_x1, cabinet_y1, cabinet_x2, cabinet_y2)
+                # Check if this cabinet overlaps with any occupied area
+                cabinet_rect = (cabinet_x1, cabinet_y1, cabinet_x2, cabinet_y2)
+                if not any(rects_overlap(cabinet_rect, area) for area in occupied_areas):
+                    # This space is free, add a cabinet here
+                    object_positions.append((
+                        x, y, max_possible_width, cabinet_depth,
+                        cabinet_def["optimal_size"][2],  # height
+                        cabinet_def["name"],
+                        False, True,  # not corner, against wall
+                        [0, 0, 0, 0]  # no shadow
+                    ))
+                    
+                    # Mark this area as occupied for future cabinet placements
+                    occupied_areas.append(cabinet_rect)
+                    grid[int(cabinet_x1):int(cabinet_x2), int(cabinet_y1):int(cabinet_y2)] = 1
+                    print(f"Added {max_possible_width}x{cabinet_depth}cm cabinet at ({x}, {y}) on {'top' if direction == 'down' else 'bottom'} wall")
+        else:
+            # Process vertical wall (left or right)
+            # Iterate in small steps to find free spaces
+            for y in range(int(start_x), int(end_x), min_cabinet_depth):
+                # Calculate maximum possible height at this position
+                max_possible_depth = min(max_cabinet_depth, end_y - y)
+                if max_possible_depth < min_cabinet_depth:
+                    continue
+                
+                # Calculate x position and width based on wall direction
+                if direction == 'right':  # Left wall
+                    y = 0
+                    cabinet_width = max_cabinet_width
+                else:  # Right wall
+                    y = room_depth - max_cabinet_width
+                    cabinet_width = max_cabinet_width
+                
+                # Create a rectangle representing this cabinet
+                cabinet_x1, cabinet_y1 = x, y
+                cabinet_x2 = x + max_possible_depth
+                cabinet_y2 = y + cabinet_width
+                print(cabinet_x1, cabinet_y1, cabinet_x2, cabinet_y2)
+                # Check if this cabinet overlaps with any occupied area
+                cabinet_rect = (cabinet_x1, cabinet_y1, cabinet_x2, cabinet_y2)
+                if not any(rects_overlap(cabinet_rect, area) for area in occupied_areas):
+                    # This space is free, add a cabinet here
+                    object_positions.append((
+                        x, y, cabinet_width, max_possible_depth,
+                        cabinet_def["optimal_size"][2],  # height
+                        cabinet_def["name"],
+                        False, True,  # not corner, against wall
+                        [0, 0, 0, 0]  # no shadow
+                    ))
+                    
+                    # Mark this area as occupied for future cabinet placements
+                    occupied_areas.append(cabinet_rect)
+                    grid[int(cabinet_x1):int(cabinet_x2), int(cabinet_y1):int(cabinet_y2)] = 1
+                    print(f"Added {cabinet_width}x{max_possible_depth}cm cabinet at ({x}, {y}) on {'left' if direction == 'right' else 'right'} wall")
+    
+    return object_positions

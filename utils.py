@@ -234,7 +234,7 @@ def is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_de
         # check if the existing object's shadow overlaps the new object
         if check_overlap(r_shadow_space[0], object_space[0]):
             return False
-    
+
 
     
     return True  # Placement is valid
@@ -353,15 +353,17 @@ def windows_doors_overlap(windows_doors, x, y, z,width, depth,  room_width, room
     # create squares for shadow space
     shadow_space = [(conv_x - conv_shadow_top, conv_y - conv_shadow_left, conv_width + conv_shadow_left + conv_shadow_right, conv_depth + conv_shadow_top + conv_shadow_bottom)]
     object_space = [(conv_x, conv_y, conv_width, conv_depth)]
+
     door_shadow=75
     isValid = False
     for wd in windows_doors:
         name, position, wx, wy, wwidth,wheight,parapet , way= wd
-        
         # Only check shadow for doors
         if "door" in name.lower():
             # Calculate shadow area based on door position
             if position == "top":
+
+                
                 shadow_rect = (wx,wy, wwidth, door_shadow)
             elif position == "bottom":
                 shadow_rect = (wx-door_shadow,wy, wwidth, door_shadow)
@@ -523,3 +525,21 @@ def is_corner_placement_sink(x, y, room_width, room_depth,  sink_width, sink_dep
 def get_object_type(obj_name):
     """Get the object type based on the object name."""
     return next((v for v in OBJECT_TYPES.values() if v["name"] == obj_name), None)
+
+def get_opposite_wall(wall):
+    if wall == "top":
+        return "bottom"
+    elif wall == "bottom":
+        return "top"
+    elif wall == "left":
+        return "right"
+    elif wall == "right":
+        return "left"
+    elif wall == "top-left":
+        return "bottom-right"
+    elif wall == "top-right":
+        return "bottom-left"
+    elif wall == "bottom-left":
+        return "top-right"
+    elif wall == "bottom-right":
+        return "top-left"

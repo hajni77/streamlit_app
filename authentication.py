@@ -43,21 +43,23 @@ def auth_section(supabase: Client):
                     except Exception as e:
                         st.error(f"Login failed: {str(e)}")
         with tab2:
-            with st.form("Sign Up"):
-                email = st.text_input("Email", key="signup_email")
-                password = st.text_input("Password", type="password", key="signup_pass")
-                if st.form_submit_button("Create Account"):
-                    try:
-                        session = supabase.auth.sign_up({
-                            "email": email,
-                            "password": password,
-                            "options": {
-                                "email_confirm": True  # Enable email confirmation
-                            }
-                        })
-                        st.success("Account created! Check your email for confirmation.")
-                    except Exception as e:
-                        st.error(f"Signup failed: {str(e)}")
+            st.write("Sign up not available")
+        # with tab2:
+        #     with st.form("Sign Up"):
+        #         email = st.text_input("Email", key="signup_email")
+        #         password = st.text_input("Password", type="password", key="signup_pass")
+        #         if st.form_submit_button("Create Account"):
+        #             try:
+        #                 session = supabase.auth.sign_up({
+        #                     "email": email,
+        #                     "password": password,
+        #                     "options": {
+        #                         "email_confirm": True  # Enable email confirmation
+        #                     }
+        #                 })
+        #                 st.success("Account created! Check your email for confirmation.")
+        #             except Exception as e:
+        #                 st.error(f"Signup failed: {str(e)}")
 
         # Social Auth Providers
         st.write("Or continue with:")

@@ -204,8 +204,8 @@ def visualize_room_with_shadows_3d(bathroom_size, placed_objects, windows_doors)
     
     # Interactive mode for adjustable viewing angles
     plt.ion()
-    # Create 3D figure
-    fig = plt.figure(figsize=(10, 10))
+    # Create 3D figure - smaller size
+    fig = plt.figure(figsize=(6, 6))
     ax = fig.add_subplot(111, projection='3d')
     ax.set_box_aspect([room_width, room_depth, room_height])  # Aspect ratio
     
@@ -238,8 +238,8 @@ def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
     
     room_width , room_depth = bathroom_size
 
-    # figsize based on room size
-    fig, ax = plt.subplots(figsize=((room_depth/100)*10, (room_width/100)*10))
+    # figsize based on room size but smaller
+    fig, ax = plt.subplots(figsize=((room_depth/100)*6, (room_width/100)*6))
     
     # Draw the room boundary
     ax.set_ylim(0, room_width)
@@ -319,7 +319,7 @@ def visualize_room_with_available_spaces(placed_objects, room_sizes, available_s
         matplotlib.figure.Figure: The visualization figure
     """
     room_width, room_depth = room_sizes
-    fig, ax = plt.subplots(figsize=((room_depth/100)*10, (room_width/100)*10))
+    fig, ax = plt.subplots(figsize=((room_depth/100)*6, (room_width/100)*6))
     # Draw room boundaries
     ax.add_patch(patches.Rectangle((0, 0), room_depth, room_width, fill=False, edgecolor='black', linewidth=2))
     # Draw placed objects

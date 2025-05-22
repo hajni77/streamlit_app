@@ -7,9 +7,10 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import random
-from optimization import optimize_object, optimization, maximize_object_sizes
+from optimization import optimize_object, optimization, maximize_object_sizes, fill_wall_with_cabinets, place_cabinets_against_walls
 from visualization import visualize_room_with_shadows_3d
 from utils import check_valid_room,check_distance_from_wall,is_corner_placement_sink, check_which_wall, check_distance, check_bathtub_shadow,adjust_object_placement_pos, convert_values, adjust_object_placement, is_valid_placement, get_available_walls, windows_doors_overlap, check_overlap, sort_objects_by_size, generate_random_size,  windows_doors_overlap, check_which_wall_for_door, OBJECT_TYPES
+import numpy as np
 class ObjectType:
     """Defines the constraints for different object types."""
     def __init__(self, name, must_be_corner, shadow_space, size_range, must_be_against_wall):
@@ -98,8 +99,8 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
             # x, y, obj_width, obj_depth = adjust_object_placement((x, y, obj_width, obj_depth),shadow, room_width, room_depth, min_space=30)  
 
 
-            if is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth) and obj_type != "toilet" :
-                if check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
+            if is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth)  :
+                if "bathtub" not in object_positions or     check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
                     if windows_doors_overlap(windows_doors, x, y,z, obj_width, obj_depth, room_width, room_depth, shadow):
                         placed = False
                     else :
@@ -110,20 +111,22 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                         #st.pyplot(fig)
                         placed_objects.append((x, y, obj_width, obj_depth, shadow ))
                         break
-            if obj_type == "toilet":
-                toilet_placed = is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow,room_width, room_depth)
-                if toilet_placed:
-                    if check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
-                        if windows_doors_overlap(windows_doors, x, y,z, obj_width, obj_depth, room_width, room_depth, shadow):
-                            placed = False
-                        else :
-                            placed = True
-                            x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions )
-                            object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
-                            #fig = visualize_room_with_shadows_3d(bathroom_size, object_positions, windows_doors)
-                            #st.pyplot(fig)
-                            placed_objects.append((x, y, obj_width, obj_depth, shadow ))
-                            break
+            # if obj_type == "toilet":
+            #     toilet_placed = is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow,room_width, room_depth)
+            #     if toilet_placed:
+            #         # if bathtub is in the objects
+
+            #         if "bathtub" not in object_positions or check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
+            #             if windows_doors_overlap(windows_doors, x, y,z, obj_width, obj_depth, room_width, room_depth, shadow):
+            #                 placed = False
+            #             else :
+            #                 placed = True
+            #                 x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions )
+            #                 object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
+            #                 #fig = visualize_room_with_shadows_3d(bathroom_size, object_positions, windows_doors)
+            #                 #st.pyplot(fig)
+            #                 placed_objects.append((x, y, obj_width, obj_depth, shadow ))
+            #                 break
             #if obj_type == "bathtub":
                 
                 #dist,rect_smaller = check_distance(conv_rect, conv_placed_obj)
@@ -187,8 +190,8 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                     
 
 
-                if is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth) and obj_type != "toilet" :
-                    if check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
+                if is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth)  :
+                    if "bathtub" not in object_positions or check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
                         if windows_doors_overlap(windows_doors, x, y,z, obj_width, obj_depth, room_width, room_depth,shadow):
                             placed = False
                         else :
@@ -200,22 +203,22 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                             #st.pyplot(fig)
                             placed_objects.append((x, y, obj_width, obj_depth, shadow ))
                         break
-                if obj_type == "toilet":
-                    toilet_placed = is_valid_placement((x, y, obj_width, obj_depth), placed_objects,shadow, room_width, room_depth)
-                    if toilet_placed:
-                        if check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
-                            if windows_doors_overlap(windows_doors, x, y,z, obj_width, obj_depth, room_width, room_depth, shadow):
-                                placed = False
-                            else :
-                                placed = True
+                # if obj_type == "toilet":
+                #     toilet_placed = is_valid_placement((x, y, obj_width, obj_depth), placed_objects,shadow, room_width, room_depth)
+                #     if toilet_placed:
+                #         if "bathtub" not in object_positions or check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
+                #             if windows_doors_overlap(windows_doors, x, y,z, obj_width, obj_depth, room_width, room_depth, shadow):
+                #                 placed = False
+                #             else :
+                #                 placed = True
                             
-                            x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions )
-                            object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
-                            #fig = visualize_room_with_shadows_3d(bathroom_size, object_positions, windows_doors)
-                            #st.pyplot(fig)
-                            placed_objects.append((x, y, obj_width, obj_depth, shadow ))
+                #             x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions )
+                #             object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
+                #             #fig = visualize_room_with_shadows_3d(bathroom_size, object_positions, windows_doors)
+                #             #st.pyplot(fig)
+                #             placed_objects.append((x, y, obj_width, obj_depth, shadow ))
 
-                            break
+                #             break
                     
 
             if not placed:
@@ -232,7 +235,13 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                 print(f"Could not place object {obj_type} due to space limitations.")
         
     object_positions = optimization(object_positions, bathroom_size)
+    print("Optimization done")
     object_positions = maximize_object_sizes(object_positions, bathroom_size, OBJECT_TYPES)
+    print("Maximization done")
+    # fill wall with cabinets
+    print(object_positions)
+    # object_positions = place_cabinets_against_walls(object_positions, bathroom_size, windows_doors)
+    # print("Cabinet placement done")
     return object_positions
 
 
