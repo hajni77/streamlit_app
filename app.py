@@ -757,18 +757,15 @@ else:
             # Layout quality score
             st.markdown("<h3 class='section-header'>Layout Quality Score</h3>", unsafe_allow_html=True)
             
-            # Display the overall score prominently
-            score_col1, score_col2 = st.columns([1, 3])
             
-            with score_col1:
-                total_score = st.session_state.total_score
-                st.markdown(f"<div style='text-align: center; font-size: 3rem; font-weight: bold; color: {'green' if total_score > 35 else 'orange' if total_score > 25 else 'red'};'>{total_score}</div>", unsafe_allow_html=True)
-            
-            with score_col2:
-                # Display detailed scores
-                detailed_scores = st.session_state.detailed_scores
-                for category, score in detailed_scores.items():
-                    st.markdown(f"**{category}**: {score}/10")
+            total_score = st.session_state.total_score
+            # only 3 decimal places
+            total_score = round(total_score, 3)
+            st.markdown(f"<div style='text-align: left; font-size: 3rem; font-weight: bold; color: {'green' if total_score > 35 else 'orange' if total_score > 25 else 'red'};'>{total_score}</div>", unsafe_allow_html=True)
+            # Display detailed scores
+            detailed_scores = st.session_state.detailed_scores
+            for category, score in detailed_scores.items():
+                st.markdown(f"**{category}**: {score}/10")
             
             # Suggestions for improvement
             #st.markdown("<h3 class='section-header'>Suggested Improvements</h3>", unsafe_allow_html=True)
@@ -977,17 +974,15 @@ else:
                 # Layout quality score
                 st.markdown("<h3 class='section-header'>Layout Quality Score</h3>", unsafe_allow_html=True)
                 
-                # Display the overall score prominently
-                score_col1, score_col2 = st.columns([1, 3])
-            
-                with score_col1:
-                    total_score = st.session_state.total_score
-                    st.markdown(f"<div style='text-align: center; font-size: 3rem; font-weight: bold; color: {'green' if total_score > 35 else 'orange' if total_score > 25 else 'red'};'>{total_score}</div>", unsafe_allow_html=True)
+
+                total_score = st.session_state.total_score
+                # only 3 decimal places
+                total_score = round(total_score, 3)
+                st.markdown(f"<div style='text-align: left; font-size: 3rem; font-weight: bold; color: {'green' if total_score > 35 else 'orange' if total_score > 25 else 'red'};'>{total_score}</div>", unsafe_allow_html=True)
                 
-                with score_col2:
-                    # Display detailed scores
-                    detailed_scores = st.session_state.detailed_scores
-                    for category, score in detailed_scores.items():
+                # Display detailed scores
+                detailed_scores = st.session_state.detailed_scores
+                for category, score in detailed_scores.items():
                         st.markdown(f"**{category}**: {score}/10")
             
             
