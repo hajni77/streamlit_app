@@ -56,7 +56,7 @@ def get_user_supabase():
         return create_client(st.secrets['SUPABASE_URL'], token)
     return supabase
 
-def save_data(room_sizes, positions, doors, review, is_enough_path, space, overall, is_everything):
+def save_data(room_sizes, positions, doors, review, is_enough_path, space, overall, is_everything, room_name, calculated_reward, reward):
     if not st.session_state.auth.get('user'):
         st.error("Please sign in to submit reviews")
         return
@@ -90,7 +90,10 @@ def save_data(room_sizes, positions, doors, review, is_enough_path, space, overa
                 "position": {"x": door[2], "y": door[3]},
                 "dimensions": {"width": door[4], "height": door[5]}
             } for door in doors],
-            "user_id": st.session_state.user.id
+            "user_id": st.session_state.user.id,
+            "room_name": room_name,
+            "calculated_reward": calculated_reward,
+            "real_reward": reward
         }
 
         if is_enough_path and space and overall:
@@ -352,6 +355,9 @@ else:
                 is_enough_path,
                 space,
                 overall,
-                is_everything
+                is_everything,
+                room_name,
+                calculated_reward,
+                reward
             )
             st.success("Thank you for your review, all data saved to database!")

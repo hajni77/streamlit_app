@@ -2,6 +2,7 @@
 import random
 import json
 import streamlit as st
+
 OBJECT_TYPES = []
 with open('object_types.json') as f:
     OBJECT_TYPES = json.load(f)
@@ -166,15 +167,15 @@ def convert_shadows(shadows, wall):
         return  shadow_top, shadow_left, shadow_right, shadow_bottom       
 # Check if two rectangles overlap
 def check_overlap(rect1, rect2):
-    rect1_left = rect1[0]
-    rect1_right = rect1[0] + rect1[3]
-    rect1_top = rect1[1]
-    rect1_bottom = rect1[1] + rect1[2]
+    rect1_left = rect1[1]
+    rect1_right = rect1[1] + rect1[2]
+    rect1_top = rect1[0]
+    rect1_bottom = rect1[0] + rect1[3]
 
-    rect2_left = rect2[0]
-    rect2_right = rect2[0] + rect2[3]
-    rect2_top = rect2[1]
-    rect2_bottom = rect2[1] + rect2[2]
+    rect2_left = rect2[1]
+    rect2_right = rect2[1] + rect2[2]
+    rect2_top = rect2[0]
+    rect2_bottom = rect2[0] + rect2[3]
     # check if the rectangles are inside each other (1 in 2)
     if rect1_left >= rect2_left and rect1_right <= rect2_right and rect1_top >= rect2_top and rect1_bottom <= rect2_bottom:
         return True
@@ -277,12 +278,211 @@ def check_bathtub_shadow(new_rect,placed_rects, shadow_space,room_width, room_de
                 # calculate the overlap area
                 overlap_area = calculate_overlap_area(bathroom_shadow_space,rect )
                 shadow_area = shadow_area - overlap_area 
-    overlap_area = calculate_overlap_area(bathroom_shadow_space,new_rect )
-    shadow_area = shadow_area - overlap_area
+    # Calculate remaining rectangles after overlap
+    remaining_rects = calculate_rect_after_overlap(bathroom_shadow_space, new_rect)
+    
+    # Calculate total remaining shadow area
+    shadow_area = 0
+    has_minimum_width = False
+    
+    for rect in remaining_rects:
+        x, y, width, depth = rect
+        rect_area = width * depth
+        shadow_area += rect_area
+        
+        # Check if any remaining rectangle has at least 60 cm width or depth
+        if width >= 60 or depth >= 60:
+            has_minimum_width = True
+    
+    # Check both total area and minimum width requirements
     if shadow_area < required_shadow_area:
-        return False    
+        return False
+    
+    if not has_minimum_width:
+        return False
+        
+    return True
+def check_door_sink_placement(new_rect, placed_objects, windows_doors, room_width, room_depth):
+    """
+    Check if a sink is placed behind an inward-opening door on the hinge side.
+    This prevents sinks from being blocked by the door or blocking the door's movement.
+    
+    Args:
+        new_rect (tuple): New object being placed (x, y, width, depth)
+        placed_objects (list): List of already placed objects
+        windows_doors (list): List of windows and doors
+        room_width (int): Width of the room
+        room_depth (int): Depth of the room
+    
+    Returns:
+        bool: True if placement is valid (no sink behind inward door), False otherwise
+    """
+    # Check if the new object is a sink, only one object TODO
+    new_obj_is_sink = False
+    if len(new_rect) > 4 and isinstance(new_rect[5], str) and ('sink' in new_rect[5].lower() or 'Sink' in new_rect[5]):
+        new_obj_is_sink = True
+        new_sink_x, new_sink_y, new_sink_width, new_sink_depth = new_rect[0:4]
+    
+    # Iterate through all doors
+    for door in windows_doors:
+        print(door)
+        if 'door' in door[0].lower():  # Only check actual doors
+            door_type = door[1]  # wall type (top, bottom, left, right)
+            door_x, door_y = door[2], door[3]  # position
+            door_width = door[4]  # width
+            door_way = door[7] if len(door) > 7 else "Inward"  # Default to inward if not specified
+            door_hinge = door[8] if len(door) > 8 else "Left"  # Default to left hinge if not specified
+            
+            # Only check inward-opening doors
+            if door_way == "inward" or door_way == "Inward":
+                # Calculate the area behind the door hinge (not the entire swing area)
+                hinge_area = None
+                
+                if door_type == "top":
+                    if door_hinge == "Left":
+                        # Door hinged on left side of the opening
+                        hinge_area = (0, door_y+door_width, 50, 50)  # Area behind left hinge
+                    else:  # right hinge
+                        # Door hinged on right side of the opening
+                        hinge_area = (0, door_y - 50, 50, 50)  # Area behind right hinge
+                
+                elif door_type == "bottom":
+                    if door_hinge == "Left":
+                        # Door hinged on left side of the opening
+                        hinge_area = (room_width - 50, door_y-50, 50, 50)  # Area behind left hinge
+                    else:  # right hinge
+                        # Door hinged on right side of the opening
+                        hinge_area = (room_width - 50, door_y + door_width , 50, 50)  # Area behind right hinge
+                
+                elif door_type == "left":
+                    if door_hinge == "Left":
+                        # Door hinged on top side of the opening
+                        hinge_area = (door_x-50, 0, 50, 50)  # Area behind top hinge
+                    else:  # bottom hinge
+                        # Door hinged on bottom side of the opening
+                        hinge_area = (door_x + door_width , 0, 50, 50)  # Area behind bottom hinge
+                
+                elif door_type == "right":
+                    if door_hinge == "Left":
+                        # Door hinged on top side of the opening
+                        hinge_area = (door_x+door_width, room_depth - 50, 50, 50)  # Area behind top hinge
+                    else:  # bottom hinge
+                        # Door hinged on bottom side of the opening
+                        hinge_area = (door_x - 50, room_depth - 50, 50, 50)  # Area behind bottom hinge
+                
+                # If we have a valid hinge area and the new object is a sink, check for overlap
+                if hinge_area and new_obj_is_sink:
+                    if check_overlap(new_rect[0:4], hinge_area):
+                        return False
+                
+                # # Check existing sinks against the new door's hinge area
+                # if not new_obj_is_sink and 'door' in new_rect[5].lower():
+                #     new_door_type = new_rect[1]  # wall type
+                #     new_door_x, new_door_y = new_rect[2], new_rect[3]  # position
+                #     new_door_width = new_rect[4]  # width
+                #     new_door_way = new_rect[7] if len(new_rect) > 7 else "inward"  # Default to inward
+                #     new_door_hinge = new_rect[8] if len(new_rect) > 8 else "left"  # Default to left hinge
+                    
+                #     # Only check inward-opening doors
+                #     if new_door_way.lower() == "inward":
+                #         # Calculate the new door's hinge area
+                #         new_hinge_area = None
+                        
+                #         # Calculate the area behind the new door's hinge (similar to above)
+                #         if new_door_type == "top":
+                #             if new_door_hinge == "left":
+                #                 new_hinge_area = (0, new_door_y+new_door_width, 40, 40)
+                #             else:  # right hinge
+                #                 new_hinge_area = (0, new_door_y - 40, 40, 40)
+                #         elif new_door_type == "bottom":
+                #             if new_door_hinge == "left":
+                #                 new_hinge_area = (room_width - 40, new_door_y-40, 40, 40)
+                #             else:  # right hinge
+                #                 new_hinge_area = (room_width - 40, new_door_y + new_door_width, 40, 40)
+                #         elif new_door_type == "left":
+                #             if new_door_hinge == "left":
+                #                 new_hinge_area = (new_door_x-40, 0, 40, 40)
+                #             else:  # bottom hinge
+                #                 new_hinge_area = (new_door_x + new_door_width , 0, 40, 40)
+                #         elif new_door_type == "right":
+                #             if new_door_hinge == "left":
+                #                 new_hinge_area = (new_door_x+new_door_width, room_depth - 40, 40, 40)
+                #             else:  # bottom hinge
+                #                 new_hinge_area = (new_door_x - 40, room_depth - 40, 40, 40)
+                        
+                #         # Check all placed objects for sinks
+                #         for obj in placed_objects:
+                #             if 'sink' in obj[5].lower() or 'Sink' in obj[5]:
+                #                 sink_rect = obj[0:4]
+                #                 if new_hinge_area and check_overlap(sink_rect, new_hinge_area):
+                #                     return False
+    
     return True
 
+
+def calculate_rect_after_overlap(rect1, rect2):
+    """
+    Calculate the remaining rectangle(s) after subtracting the intersection of rect2 from rect1.
+    
+    Args:
+        rect1 (tuple): First rectangle (x, y, width, depth)
+        rect2 (tuple): Second rectangle (x, y, width, depth)
+    
+    Returns:
+        list: List of remaining rectangles after subtracting the intersection
+    """
+    # Extract coordinates of rect1
+    x1, y1, width1, depth1 = rect1
+    x1_end = x1 + depth1
+    y1_end = y1 + width1
+    
+    # Extract coordinates of rect2
+    x2, y2, width2, depth2 = rect2
+    x2_end = x2 + depth2
+    y2_end = y2 + width2
+    
+    # Check if there's an overlap
+    if (x1 >= x2_end or x2 >= x1_end or y1 >= y2_end or y2 >= y1_end):
+        # No overlap, return the original rect1
+        return [rect1]
+    
+    # Calculate the intersection rectangle
+    intersection_x = max(x1, x2)
+    intersection_y = max(y1, y2)
+    intersection_x_end = min(x1_end, x2_end)
+    intersection_y_end = min(y1_end, y2_end)
+    
+    # Calculate the remaining rectangles (up to 4 possible rectangles)
+    remaining_rects = []
+    
+    # Top rectangle
+    if y1 < intersection_y:
+        top_rect = (x1, y1, width1, intersection_y - y1)
+        remaining_rects.append(top_rect)
+    
+    # Bottom rectangle
+    if y1_end > intersection_y_end:
+        bottom_rect = (x1, intersection_y_end, width1, y1_end - intersection_y_end)
+        remaining_rects.append(bottom_rect)
+    
+    # Left rectangle (excluding any overlap with top and bottom rectangles)
+    if x1 < intersection_x:
+        left_rect = (x1, intersection_y, intersection_x - x1, intersection_y_end - intersection_y)
+        remaining_rects.append(left_rect)
+    
+    # Right rectangle (excluding any overlap with top and bottom rectangles)
+    if x1_end > intersection_x_end:
+        right_rect = (intersection_x_end, intersection_y, x1_end - intersection_x_end, intersection_y_end - intersection_y)
+        remaining_rects.append(right_rect)
+    
+    # Filter out any rectangles with zero or negative area
+    valid_rects = []
+    for rect in remaining_rects:
+        rx, ry, rwidth, rdepth = rect
+        if rwidth > 0 and rdepth > 0:
+            valid_rects.append(rect)
+    
+    return valid_rects
 
 def is_valid_placement_without_converting(new_rect, placed_rects, shadow_space, room_width, room_depth):
     """Ensures the new object does not overlap with existing objects or shadows."""
@@ -339,7 +539,14 @@ def check_valid_room(placed_obj):
 
 def sort_objects_by_size(object_list, OBJECT_TYPES):
     """Sort objects by their maximum possible area (largest first)."""
-    return sorted(object_list, key=lambda obj: OBJECT_TYPES[obj]["size_range"][1] * OBJECT_TYPES[obj]["size_range"][3], reverse=True)
+    if len(object_list) <= 2:
+        # sink will be the first
+        if "sink" in object_list[0] or "Sink" in object_list[0]:
+            return object_list
+        elif "sink" in object_list[1] or "Sink" in object_list[1]:
+            return object_list[::-1]
+    else:
+        return sorted(object_list, key=lambda obj: OBJECT_TYPES[obj]["size_range"][1] * OBJECT_TYPES[obj]["size_range"][3], reverse=True)
 
 def generate_random_size(object_type):
     """Generates a random size within the allowed range for an object."""
@@ -357,7 +564,7 @@ def windows_doors_overlap(windows_doors, x, y, z,width, depth,  room_width, room
     door_shadow=75
     isValid = False
     for wd in windows_doors:
-        name, position, wx, wy, wwidth,wheight,parapet , way= wd
+        name, position, wx, wy, wwidth,wheight,parapet ,way, hinge= wd
         # Only check shadow for doors
         if "door" in name.lower():
             # Calculate shadow area based on door position
@@ -426,6 +633,8 @@ def adjust_object_placement_pos(new_rect, shadow,room_width, room_depth, wall):
 def check_distance (conv_rect1,conv_rect2):
     x1, y1, width1, depth1, shadow_top1, shadow_left1, shadow_right1, shadow_bottom1 = conv_rect1
     x2, y2, width2, depth2, shadow_top2, shadow_left2, shadow_right2, shadow_bottom2 = conv_rect2
+    dist = 0
+    
     if x1 < x2:
         # check which greater
         shadow = shadow_bottom1 if shadow_bottom1 > shadow_top2 else shadow_top2
@@ -543,3 +752,120 @@ def get_opposite_wall(wall):
         return "top-right"
     elif wall == "bottom-right":
         return "top-left"
+        
+def get_walls_parallel_to_doors(door_walls):
+    """
+    Get walls that are parallel to doors, which are preferred for toilet placement.
+    
+    Args:
+        door_walls (list): List of walls where doors are located
+        
+    Returns:
+        list: Walls that are parallel to doors (preferred for toilet placement)
+    """
+    parallel_walls = []
+    for wall in door_walls:
+        if wall in ["top", "bottom"]:
+            parallel_walls.extend(["left", "right"])
+        elif wall in ["left", "right"]:
+            parallel_walls.extend(["top", "bottom"])
+    
+    # Remove duplicates and return unique walls
+    return list(set(parallel_walls))
+def calculate_space_before_object(obj, placed_objects, room_size):
+    """
+    Calculate the space in front of an object toward the opposite wall.
+    For objects against a wall, it calculates the free space in the direction away from the wall.
+    
+    Args:
+        obj (tuple): Object to check space for (x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow)
+        placed_objects (list): List of all placed objects in the room
+        room_size (tuple): Room dimensions (width, depth)
+        
+    Returns:
+        float: Amount of free space in front of the object (in cm)
+    """
+    x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
+    room_width, room_depth = room_size
+    
+    # Determine which wall(s) the object is against
+    against_wall = check_which_wall((x, y, width, depth), room_width, room_depth)
+    
+    # Calculate the distance to the opposite wall and the free space
+    free_space = 0
+    if against_wall == "top":
+        # Object is against top wall, calculate space toward bottom wall
+        total_space_coordinates = (x+depth,y,width,room_width-depth)  # Distance from object to bottom wall
+        free_space = total_space_coordinates[3]*total_space_coordinates[2]
+                                     
+    elif against_wall == "bottom":
+        # Object is against bottom wall, calculate space toward top wall
+        total_space_coordinates = (0,y,width, room_width-depth)  # Distance from object to top wall
+        free_space = total_space_coordinates[3]*total_space_coordinates[2]
+                                     
+    elif against_wall == "left":
+        # Object is against left wall, calculate space toward right wall
+        total_space_coordinates = (x,y+width,room_depth-width,depth)  # Distance from object to right wall
+        free_space = total_space_coordinates[3]*total_space_coordinates[2]
+                   
+    elif against_wall == "right":
+        # Object is against right wall, calculate space toward left wall
+        total_space_coordinates = (x,0,room_depth-width,depth)  # Distance from object to left wall
+        free_space = total_space_coordinates[3]*total_space_coordinates[2]
+
+
+    elif against_wall == "top-left":
+        # Object is against top-left wall, calculate space toward bottom-right wall
+        total_space_coordinates_left = (x,y+width,room_depth-width,depth) # Distance from object to bottom-right wall
+        total_space_coordinates = (x+depth,y,width,room_width-depth)  # Distance from object to bottom-right wall
+        free_space = total_space_coordinates_left[3]*total_space_coordinates_left[2] + total_space_coordinates[3]*total_space_coordinates[2]
+    elif against_wall == "top-right":
+        # Object is against top-right wall, calculate space toward bottom-left wall
+        total_space_coordinates= (x+depth,y,width,room_width-depth) # Distance from object to bottom-left wall
+        total_space_coordinates_right = (x,0,room_depth-width,depth)   # Distance from object to bottom-right wall
+        free_space = total_space_coordinates[3]*total_space_coordinates[2] + total_space_coordinates_right[3]*total_space_coordinates_right[2]
+    elif against_wall == "bottom-left":
+        # Object is against bottom-left wall, calculate space toward top-right wall
+        total_space_coordinates = (0,y,width, room_width-depth) # Distance from object to top-right wall
+        total_space_coordinates_left = (x,y+width,room_depth-width,depth) # Distance from object to top-left wall
+        free_space = total_space_coordinates[3]*total_space_coordinates[2] + total_space_coordinates_left[3]*total_space_coordinates_left[2]
+    elif against_wall == "bottom-right":
+        # Object is against bottom-right wall, calculate space toward top-left wall
+        total_space_coordinates =(0,y,width, room_width-depth)  # Distance from object to top-left wall
+        total_space_coordinates_right = (x,0,room_depth-width,depth) # Distance from object to top-left wall
+        free_space = total_space_coordinates[3]*total_space_coordinates[2] + total_space_coordinates_right[3]*total_space_coordinates_right[2]
+    # Check for objects in between that reduce free space
+    for other_obj in placed_objects:
+        if other_obj != obj:
+            other_x, other_y, other_width, other_depth, other_height, other_name, other_corner, other_against_wall, other_shadow = other_obj
+            if against_wall == "top-left" or against_wall == "bottom-left" :
+                if check_overlap(total_space_coordinates_left, (other_x, other_y, other_width, other_depth)):
+                    overlap = calculate_overlap_area(total_space_coordinates_left, (other_x, other_y, other_width, other_depth))
+                    free_space -= overlap
+            elif against_wall == "top-right" or against_wall == "bottom-right" :
+                if check_overlap(total_space_coordinates_right, (other_x, other_y, other_width, other_depth)):
+                    overlap = calculate_overlap_area(total_space_coordinates_right, (other_x, other_y, other_width, other_depth))
+                    free_space -= overlap
+            # Check if other object is in the path between this object and left wall
+            else:
+                if check_overlap(total_space_coordinates, (other_x, other_y, other_width, other_depth)):
+                    overlap = calculate_overlap_area(total_space_coordinates, (other_x, other_y, other_width, other_depth))
+                    free_space -= overlap
+    
+    return free_space
+
+def get_nearest_parallel_wall(door, room_width, room_depth):
+    if door[1] == "top" or door[1] == "bottom":
+        door_y = door[2]
+        if door_y < room_depth/2:
+            return "left"
+        else:
+            return "right"
+    elif door[1] == "left" or door[1] == "right":
+        door_x = door[2]
+        if door_x < room_width/2:
+            return "top"
+        else:
+            return "bottom"
+    
+    return door[1]

@@ -24,7 +24,7 @@ object_colors = {
 def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shadow=75):
     # Draw windows and doors
     for item in windows_doors:
-        id_, wall, x, y,  width,height, parapet, way = item
+        id_, wall, x, y,  width,height, parapet, way, hinge = item
         
         # Calculate vertices based on wall placement
         if wall == "top":
@@ -255,7 +255,7 @@ def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
     ax.plot([0, 0], [0, room_width], "k-", linewidth=3)  # Left wall
     ax.plot([room_depth, room_depth], [0, room_width], "k-", linewidth=3)  # Right wall
     for door in doors:
-        name, selected_door_type, x, y, door_width, door_height, shadow, way = door
+        name, selected_door_type, x, y, door_width, door_height, shadow, way, hinge = door
         shadow = door_width
         alpha = 0.3
         name = "Outward Door"
@@ -353,6 +353,264 @@ def visualize_room_with_available_spaces(placed_objects, room_sizes, available_s
     ax.invert_yaxis()
     return fig
 
+
+def visualize_pathway_accessibility(placed_objects, room_sizes, windows_doors, path_width=60):
+    """
+    Visualizes the bathroom layout with pathway accessibility from doors to objects.
+    
+    Args:
+        placed_objects (list): List of placed objects [(x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow)]
+        room_sizes (tuple): Room dimensions (width, depth)
+        windows_doors (list): List of windows and doors in the room
+        path_width (int): Minimum width of pathways in cm (default: 60)
+        
+    Returns:
+        matplotlib.figure.Figure: The visualization figure showing accessible pathways
+    """
+    room_width, room_depth = room_sizes
+    
+    fig, ax = plt.subplots(figsize=((room_depth/100)*6, (room_width/100)*6))
+    
+    # Draw room boundaries
+    ax.add_patch(patches.Rectangle((0, 0), room_depth, room_width, fill=False, edgecolor='black', linewidth=2))
+    
+    # Create a grid for the room to check pathways
+    grid_resolution = 1  # cm per grid cell
+    grid_width = int(room_width / grid_resolution) + 1
+    grid_depth = int(room_depth / grid_resolution) + 1
+    
+    # Create a grid where 1 = occupied, 0 = free space
+    grid = np.zeros((grid_width, grid_depth))
+    
+    # Mark all objects on the grid
+    for obj in placed_objects:
+        x, y, width, depth, height, name, _, _, _ = obj
+        # Convert to grid coordinates
+        grid_x_start = max(0, int(x / grid_resolution))
+        grid_y_start = max(0, int(y / grid_resolution))
+        grid_x_end = min(grid_width, int((x + depth) / grid_resolution) + 1)
+        grid_y_end = min(grid_depth, int((y + width) / grid_resolution) + 1)
+        
+        # Mark object cells as occupied
+        grid[grid_x_start:grid_x_end, grid_y_start:grid_y_end] = 1
+        
+        # Draw the object
+        ax.add_patch(patches.Rectangle((y, x), width, depth, fill=True, color='blue', alpha=0.7))
+        ax.text(y + width/2, x + depth/2, name, ha="center", va="center", fontsize=10, fontweight="bold", color='white')
+    
+    # Function to check if there's a clear path of at least 60cm width
+    def has_clear_path(start_x, start_y, target_x, target_y):
+        """
+        Find a clear path from start to target that is at least 60cm wide using BFS.
+        The path can go in any direction (not just straight lines).
+        
+        Args:
+        start_x, start_y: Starting position in grid coordinates
+        target_x, target_y: Target position in grid coordinates
+    
+        Returns:
+        bool: True if there's a clear path, False otherwise
+        list: List of coordinates along the path if found, empty list otherwise
+        """
+        # 60cm path width in grid units
+        path_width = int(60 / grid_resolution)
+        path_radius = path_width // 2
+        
+        # Create a visited grid to track which cells have been visited
+        visited = np.zeros_like(grid, dtype=bool)
+    
+        # Create a queue for BFS
+        queue = [(start_x, start_y, [(start_x, start_y)])]
+        visited[start_x, start_y] = True
+    
+        # Define possible movement directions (including diagonals)
+        directions = [
+            (-1, 0), (1, 0), (0, -1), (0, 1),  # Cardinal directions
+            (-1, -1), (-1, 1), (1, -1), (1, 1)    # Diagonal directions
+        ]
+    
+        while queue:
+            current_x, current_y, path = queue.pop(0)
+        
+        # Check if we've reached the target
+        if current_x == target_x and current_y == target_y:
+            return True, path
+        
+        # Try all possible directions
+        for dx, dy in directions:
+            new_x, new_y = current_x + dx, current_y + dy
+            
+            # Check if the new position is within grid bounds
+            if (0 <= new_x < grid_width and 
+                0 <= new_y < grid_depth and 
+                not visited[new_x, new_y]):
+                
+                # Check if there's enough clearance for a 60cm wide path
+                # We need to check a square area of path_width×path_width centered at the new position
+                x_min = max(0, new_x - path_radius)
+                x_max = min(grid_width, new_x + path_radius + 1)
+                y_min = max(0, new_y - path_radius)
+                y_max = min(grid_depth, new_y + path_radius + 1)
+                
+                # If there are no obstacles in this area, we can move here
+                if not np.any(grid[x_min:x_max, y_min:y_max]):
+                    visited[new_x, new_y] = True
+                    new_path = path + [(new_x, new_y)]
+                    queue.append((new_x, new_y, new_path))
+    
+        # If we've explored all possible paths and haven't found the target, return False
+        return False, []
+    
+    # Draw doors
+    door_positions = []
+    for door in windows_doors:
+        if 'door' in door[0].lower():  # Only check actual doors, not windows
+            door_type = door[1]  # wall type (top, bottom, left, right)
+            door_x, door_y = door[2], door[3]  # position
+            door_width = door[4]  # width
+            
+            # Draw the door
+            if door_type == "top":
+                ax.add_patch(patches.Rectangle((door_y, 0), door_width, 10, fill=True, color='green', alpha=0.7))
+                door_grid_x = 0
+                door_grid_y = int((door_y + door_width/2) / grid_resolution)
+            elif door_type == "bottom":
+                ax.add_patch(patches.Rectangle((door_y, room_width-10), door_width, 10, fill=True, color='green', alpha=0.7))
+                door_grid_x = grid_width-1
+                door_grid_y = int((door_y + door_width/2) / grid_resolution)
+            elif door_type == "left":
+                ax.add_patch(patches.Rectangle((0, door_x), 10, door_width, fill=True, color='green', alpha=0.7))
+                door_grid_x = int((door_x + door_width/2) / grid_resolution)
+                door_grid_y = 0
+            elif door_type == "right":
+                ax.add_patch(patches.Rectangle((room_depth-10, door_x), 10, door_width, fill=True, color='green', alpha=0.7))
+                door_grid_x = int((door_x + door_width/2) / grid_resolution)
+                door_grid_y = grid_depth-1
+            
+            door_positions.append((door_grid_x, door_grid_y))
+            ax.text(door_y + door_width/2, door_x + 5, "Door", ha="center", va="center", fontsize=8, color='black')
+    
+    # Check pathway from each door to each object
+    accessible_objects = set()
+    accessible_paths = []
+    
+    for door_grid_x, door_grid_y in door_positions:
+        for i, obj in enumerate(placed_objects):
+            x, y, width, depth, height, name, _, _, _ = obj
+            
+            # Get multiple points around the object's perimeter for more realistic accessibility
+            perimeter_points = []
+            
+            # Left side - multiple points along the left edge
+            for j in range(1, int(width / grid_resolution), 10):  # Check every 10cm
+                perimeter_points.append((int(x / grid_resolution), int((y + j) / grid_resolution)))
+            
+            # Right side - multiple points along the right edge
+            for j in range(1, int(width / grid_resolution), 10):
+                perimeter_points.append((int((x + depth) / grid_resolution), int((y + j) / grid_resolution)))
+            
+            # Top side - multiple points along the top edge
+            for j in range(1, int(depth / grid_resolution), 10):
+                perimeter_points.append((int((x + j) / grid_resolution), int(y / grid_resolution)))
+            
+            # Bottom side - multiple points along the bottom edge
+            for j in range(1, int(depth / grid_resolution), 10):
+                perimeter_points.append((int((x + j) / grid_resolution), int((y + width) / grid_resolution)))
+            
+            # Add the corners and midpoints of sides for good measure
+            perimeter_points.extend([
+                (int(x / grid_resolution), int(y / grid_resolution)),  # top-left corner
+                (int((x + depth) / grid_resolution), int(y / grid_resolution)),  # top-right corner
+                (int(x / grid_resolution), int((y + width) / grid_resolution)),  # bottom-left corner
+                (int((x + depth) / grid_resolution), int((y + width) / grid_resolution)),  # bottom-right corner
+                (int(x / grid_resolution), int((y + width/2) / grid_resolution)),  # middle of left side
+                (int((x + depth) / grid_resolution), int((y + width/2) / grid_resolution)),  # middle of right side
+                (int((x + depth/2) / grid_resolution), int(y / grid_resolution)),  # middle of top side
+                (int((x + depth/2) / grid_resolution), int((y + width) / grid_resolution))   # middle of bottom side
+            ])
+            
+            # Check if any perimeter point has a clear path to the door
+            has_access = False
+            for point_x, point_y in perimeter_points:
+                path_exists, path_coords = has_clear_path(door_grid_x, door_grid_y, point_x, point_y)
+                if path_exists:
+                    # Store the actual path found by BFS for visualization
+                    accessible_paths.append(path_coords)
+                    
+                    has_access = True
+                    accessible_objects.add(i)
+                    break
+    
+    # Draw all accessible paths with 60cm width circles at each point
+    path_radius = 30  # 60cm diameter / 2 = 30cm radius
+    for path in accessible_paths:
+        # Draw path segments connecting points
+        for i in range(len(path)-1):
+            # Get current and next point in the path
+            x1, y1 = path[i]
+            x2, y2 = path[i+1]
+            
+            # Convert from grid to room coordinates
+            room_x1 = y1 * grid_resolution
+            room_y1 = x1 * grid_resolution
+            room_x2 = y2 * grid_resolution
+            room_y2 = x2 * grid_resolution
+            
+            # Draw circles with 30cm radius at each path position to represent 60cm clearance
+            ax.add_patch(patches.Circle(
+                (room_x1, room_y1), 
+                path_radius,
+                fill=True, color='lightgreen', alpha=0.2, zorder=0
+            ))
+            
+            # Draw line connecting the centers of adjacent circles
+            ax.plot(
+                [room_x1, room_x2], 
+                [room_y1, room_y2], 
+                color='lightgreen', linewidth=3, alpha=0.6, zorder=1
+            )
+        
+        # Draw circle at the last point too
+        if path:
+            last_x, last_y = path[-1]
+            room_x = last_y * grid_resolution
+            room_y = last_x * grid_resolution
+            ax.add_patch(patches.Circle(
+                (room_x, room_y), 
+                path_radius,
+                fill=True, color='lightgreen', alpha=0.2, zorder=0
+            ))
+    
+    # Highlight accessible vs inaccessible objects
+    for i, obj in enumerate(placed_objects):
+        x, y, width, depth, height, name, _, _, _ = obj
+        if i in accessible_objects:
+            # Draw a green border around accessible objects
+            ax.add_patch(patches.Rectangle((y, x), width, depth, fill=False, edgecolor='green', linewidth=2))
+        else:
+            # Draw a red border around inaccessible objects
+            ax.add_patch(patches.Rectangle((y, x), width, depth, fill=False, edgecolor='red', linewidth=2))
+    
+    # Set limits and labels
+    ax.set_xlim(0, room_depth)
+    ax.set_ylim(0, room_width)
+    ax.set_xlabel('Width (cm)')
+    ax.set_ylabel('Depth (cm)')
+    ax.set_title(f'Bathroom Layout with {path_width}cm Pathway Accessibility')
+    
+    # Add legend
+    handles = [
+        patches.Patch(color='blue', alpha=0.7, label='Objects'),
+        patches.Patch(color='green', alpha=0.7, label='Doors'),
+        patches.Patch(color='lightgreen', alpha=0.3, label='Accessible Pathways'),
+        patches.Patch(color='green', fill=False, linewidth=2, label='Accessible Objects'),
+        patches.Patch(color='red', fill=False, linewidth=2, label='Inaccessible Objects')
+    ]
+    ax.legend(handles=handles, loc='upper center', bbox_to_anchor=(0.5, -0.05), ncol=3)
+    
+    ax.set_aspect('equal')
+    ax.invert_yaxis()
+    return fig
 
 
 

@@ -101,7 +101,10 @@ def save_data(room_sizes, positions, doors, review, is_enough_path, space, overa
                 "position": {"x": door[2], "y": door[3]},
                 "dimensions": {"width": door[4], "height": door[5]}
             } for door in doors],
-            "user_id": st.session_state.user.id
+            "user_id": st.session_state.user.id,
+            "room_name": room_name,
+            "calculated_reward": calculated_reward,
+            "real_reward": reward
         }
 
         # Add optional fields if available
@@ -441,7 +444,8 @@ else:
     st.write("Write your review about the generated room:")
     review = st.text_area("Review", "Write your review here...")
     if st.button("Submit Review"):
-        save_data((room_width, room_depth, room_height), st.session_state.positions, st.session_state.windows_doors, review, is_enough_path, space, overall, is_everything)
+        calculated_reward = st.session_state.total_score
+        save_data((room_width, room_depth, room_height), st.session_state.positions, st.session_state.windows_doors, review, is_enough_path, space, overall, is_everything, room_name, calculated_reward, reward)
         st.success("Thank you for your review, all data saved to database!")
         
 
