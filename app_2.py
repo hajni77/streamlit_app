@@ -46,7 +46,7 @@ if access_token:
 # -- Common Fixtures
 common_fixtures = [
     "Toilet", "Sink", "Shower", "Bathtub", "Cabinet",
-    "Double Sink", "Washing Machine", "Washing Dryer"
+    "Double Sink", "Washing Machine", "Washing Dryer",
 ]
 st.session_state.common_fixtures = common_fixtures
 
@@ -144,11 +144,15 @@ else:
     objects_map = { 
         "Bathtub": "bathtub",
         "Sink": "sink",
-        "Washing Machine": "washing_machine",
+        "Washing Machine": "washing machine",
         "Toilet": "toilet",
         "Shower": "shower",
-        "Double Sink": "double_sink",
+        "Double Sink": "double sink",
         "Cabinet": "cabinet",
+        "Washing Dryer": "washing dryer",
+        "Washing Machine and Dryer": "washing machine dryer",
+        "Symmetrical Bathtub": "symmetrical bathtub",
+        "Asymmetrical Bathtub": "asymmetrical bathtub",
     }
 
     # -- Room and Object Selection
@@ -207,6 +211,47 @@ else:
             windows_doors = [("door1", selected_door_type, x, y, door_width, door_height, 0)]
             bathroom_size = (room_width, room_depth)
 
+
+            # Calculate total space required for all objects (including shadows)
+            room_area = room_width * room_depth
+            required_area = 0
+            object_areas = []
+            
+            # Calculate area needed for each object
+            for obj_type in filtered_object_list:
+                if obj_type in OBJECT_TYPES:
+                    obj_def = OBJECT_TYPES[obj_type]
+                    optimal_size = obj_def["optimal_size"]
+                    #shadow = obj_def["shadow_space"]
+                    
+                    # Calculate the base area (width * depth)
+                    obj_width, obj_depth, _ = optimal_size
+                    
+                    # # Add shadow to dimensions
+                    # shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
+                    # total_width = obj_width + shadow_left + shadow_right
+                    # total_depth = obj_depth + shadow_top + shadow_bottom
+                    
+                    # # Calculate total area including shadow
+                    # obj_area = total_width * total_depth
+                    obj_area = obj_width * obj_depth
+                    # Get priority index (higher = more important)
+                    # If not in priority list, assign lowest priority
+                    priority = priority_list.index(obj_type) if obj_type in priority_list else -1
+                    
+                    object_areas.append((obj_type, obj_area, priority))
+                    required_area += obj_area
+            
+            # Add 20% for pathways and space between objects
+            required_area *= 1.2
+            
+            print(f"Room area: {room_area} cm², Required area: {required_area:.2f} cm²")
+            
+            # If room is too small for all objects, return None to indicate error
+            if required_area > room_area * 0.9:  # Leave at least 10% for maneuvering
+                print(f"ERROR: Room too small for all requested objects. Need {required_area:.2f} cm² but only have {room_area} cm²")
+                st.error(f"ERROR: Room too small for all requested objects. Need {required_area:.2f} cm² but only have {room_area} cm²")
+            
             positions = fit_objects_in_room(bathroom_size, selected_objects, windows_doors, OBJECT_TYPES, attempt=10000)
 
             placed_objects = [pos[5] for pos in positions]

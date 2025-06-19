@@ -38,14 +38,11 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
             door_walls.append(wall)
 
     # Define priority order for bathroom objects (higher index = higher priority)
-    # Essential objects like toilet and sink have highest priority
-    priority_list = [
-        "Cabinets", "Double Sink", "Bidet", "Bathtub", "Shower", "Sink", "Toilet"
-    ]
+
     
     # Check if both "Sink" and "Double Sink" are in the object list
     has_sink = "Sink" in object_list or "sink" in object_list
-    has_double_sink = "Double Sink" in object_list or "double_sink" in object_list
+    has_double_sink = "Double Sink" in object_list or "double sink" in object_list
     
     # If both types of sinks are present, choose which one to keep
     filtered_object_list = object_list.copy()
@@ -53,56 +50,18 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
         # For small bathrooms (< 300x300 cm), always keep the regular sink
         if room_width < 300 or room_depth < 300:
             sink_to_keep = "Sink"
-            filtered_object_list.remove("double_sink")
+            filtered_object_list.remove("double sink")
             print(f"Small bathroom detected ({room_width}x{room_depth}). Keeping only regular Sink.")
         else:
             # For larger bathrooms, randomly choose which sink type to keep
-            sink_to_keep = random.choice(["Sink", "double_sink"])
+            sink_to_keep = random.choice(["Sink", "double sink"])
             if sink_to_keep == "Sink":
-                filtered_object_list.remove("double_sink")
+                filtered_object_list.remove("double sink")
             else:
                 filtered_object_list.remove("sink")
             print(f"Larger bathroom detected. Keeping only: {sink_to_keep}")
     
-    # Calculate total space required for all objects (including shadows)
-    room_area = room_width * room_depth
-    required_area = 0
-    object_areas = []
     
-    # Calculate area needed for each object
-    for obj_type in filtered_object_list:
-        if obj_type in OBJECT_TYPES:
-            obj_def = OBJECT_TYPES[obj_type]
-            optimal_size = obj_def["optimal_size"]
-            #shadow = obj_def["shadow_space"]
-            
-            # Calculate the base area (width * depth)
-            obj_width, obj_depth, _ = optimal_size
-            
-            # # Add shadow to dimensions
-            # shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
-            # total_width = obj_width + shadow_left + shadow_right
-            # total_depth = obj_depth + shadow_top + shadow_bottom
-            
-            # # Calculate total area including shadow
-            # obj_area = total_width * total_depth
-            obj_area = obj_width * obj_depth
-            # Get priority index (higher = more important)
-            # If not in priority list, assign lowest priority
-            priority = priority_list.index(obj_type) if obj_type in priority_list else -1
-            
-            object_areas.append((obj_type, obj_area, priority))
-            required_area += obj_area
-    
-    # Add 20% for pathways and space between objects
-    required_area *= 1.2
-    
-    print(f"Room area: {room_area} cm², Required area: {required_area:.2f} cm²")
-    
-    # If room is too small for all objects, return None to indicate error
-    if required_area > room_area * 0.9:  # Leave at least 10% for maneuvering
-        print(f"ERROR: Room too small for all requested objects. Need {required_area:.2f} cm² but only have {room_area} cm²")
-        return None
     
     # Sort objects by size (largest first)
     sorted_objects = sort_objects_by_size(filtered_object_list, OBJECT_TYPES)
@@ -111,11 +70,16 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
         obj_def = OBJECT_TYPES[obj_type]
         shadow = obj_def["shadow_space"]
         optimal_size = obj_def["optimal_size"]
-        obj_width, obj_depth, obj_height = optimal_size
         placed = False
+
         # Dictionary to store wall selection counts
         wall_counts = {"top": 0, "bottom": 0, "left": 0, "right": 0}
         for _ in range(attempt):  # Try placements
+            if _ == attempt/2 and obj_type == "double sink":
+                obj_def = OBJECT_TYPES["sink"]
+                obj_type = "sink"
+                optimal_size = obj_def["optimal_size"]
+                
             obj_width, obj_depth, obj_height = optimal_size
             if obj_def["must_be_corner"]:
                 # randomly switch width and depth
@@ -135,7 +99,7 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                 # Ensure longest side is along the wall
                 walls = ["top", "bottom", "left", "right"]
                 
-                if obj_def['name'] == "toilet" or obj_def['name'] == "Toilet":
+                if obj_def['name'] in ["toilet", "Toilet", "Toilet Bidet", "toilet bidet"]:
                     # First try to get walls parallel to doors, which are preferred for toilet placement
                     parallel_walls = get_walls_parallel_to_doors(door_walls)
                     
@@ -173,19 +137,20 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                 # Place anywhere in the room
                 x = random.randint(0, room_width - obj_depth)
                 y = random.randint(0, room_depth - obj_width)
-            z = random.randint(0, room_height - obj_height)
 
+            z = obj_height
             # x, y, obj_width, obj_depth = adjust_object_placement((x, y, obj_width, obj_depth),shadow, room_width, room_depth, min_space=30)  
 
 
-            if is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth)  :
 
-                if "bathtub" not in object_positions or check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
-                    if windows_doors_overlap(windows_doors, x, y,z, obj_width, obj_depth, room_width, room_depth, shadow) :
+            if is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth)  :
+                if ("bathtub" or "asymmetrical bathtub") not in object_positions or check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
+                    if (obj_type == "sink" or obj_type == "toilet"  or obj_type == "double sink") and not check_door_sink_placement((x, y, obj_width, obj_depth), placed_objects, windows_doors, room_width, room_depth, obj_type):
                         placed = False
-                    elif (obj_type == "sink" or obj_type == "Sink") and not check_door_sink_placement((x, y, obj_width, obj_depth), placed_objects, windows_doors, room_width, room_depth):
+                    elif windows_doors_overlap(windows_doors, x, y,z, obj_width, obj_depth, room_width, room_depth, shadow) :
                         placed = False
-                    else :
+
+                    else:
                         placed = True
                         x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions)
                         object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
@@ -213,9 +178,11 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                 
                 #dist,rect_smaller = check_distance(conv_rect, conv_placed_obj)
      
-        if not placed:
+        if not placed and obj_type =="double sink":
+            obj_type = "sink"
+            obj_def = OBJECT_TYPES[obj_type]
             orig_obj_width, orig_obj_depth,orig_obj_height = generate_random_size(obj_def)
-            if obj_type == "washing_machine" or obj_type == "dryer" or obj_type == "washing_machine_dryer":
+            if obj_type == "washing machine" or obj_type == "washing dryer":
                 # randomly 45 or 60
                 orig_obj_width= random.choice([45])
                 orig_obj_depth = 60
@@ -242,9 +209,14 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                     # else:  # Portrait orientation
                     #     preferred_walls = ["left", "right"]
                     
-                    if obj_def['name'] == "toilet":
-                        available_walls = get_available_walls(door_walls)
-                        wall = random.choice(available_walls)
+                    if obj_def['name'] == "toilet" or obj_def['name'] == "Toilet":
+                        parallel_walls = get_walls_parallel_to_doors(door_walls)
+                        available_parallel_walls = [w for w in parallel_walls if w in ["top", "bottom", "left", "right"]]
+                        if available_parallel_walls:
+                            wall = random.choice(available_parallel_walls)
+                        else:
+                            available_walls = get_available_walls(door_walls)
+                            wall = random.choice(available_walls)
                     else:
                         wall = random.choice(walls)
 
@@ -268,16 +240,16 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                     # Place anywhere in the room
                     x = random.randint(0, room_width - obj_width)
                     y = random.randint(0, room_depth - obj_depth)
-                z = random.randint(0, room_height - obj_height)
-                    
+                z = obj_height
 
 
                 if is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth)  :
-                    if "bathtub" not in object_positions or check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
-                        if windows_doors_overlap(windows_doors, x, y,z, obj_width, obj_depth, room_width, room_depth,shadow):
+                    if ("bathtub" or "asymmetrical bathtub") not in object_positions or check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
+                        if (obj_type == "sink"  or obj_type == "toilet"   or obj_type == "double sink") and not check_door_sink_placement((x, y, obj_width, obj_depth), placed_objects, windows_doors, room_width, room_depth, obj_type):
                             placed = False
-                        elif (obj_type == "sink" or obj_type == "Sink") and not check_door_sink_placement((x, y, obj_width, obj_depth), placed_objects, windows_doors, room_width, room_depth):
+                        elif windows_doors_overlap(windows_doors, x, y,z, obj_width, obj_depth, room_width, room_depth,shadow):
                             placed = False
+
                         else :
                             placed = True
                             x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions )
@@ -323,7 +295,6 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
     object_positions = maximize_object_sizes(object_positions, bathroom_size, OBJECT_TYPES)
     print("Maximization done")
     # fill wall with cabinets
-    print(object_positions)
     # object_positions = place_cabinets_against_walls(object_positions, bathroom_size, windows_doors)
     # print("Cabinet placement done")
     return object_positions

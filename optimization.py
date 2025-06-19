@@ -6,6 +6,289 @@ import numpy as np
 import math
 from visualization import visualize_pathway_accessibility
 from utils import calculate_space_before_object
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+from utils import windows_doors_overlap, check_euclidean_distance
+
+def check_pathway_accessibility(placed_objects, room_sizes, windows_doors, path_width=60):
+    """
+    Checks the bathroom layout for pathway accessibility from doors to objects.
+    
+    Args:
+        placed_objects (list): List of placed objects [(x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow)]
+        room_sizes (tuple): Room dimensions (width, depth)
+        windows_doors (list): List of windows and doors in the room
+        path_width (int): Minimum width of pathways in cm (default: 60)
+        
+    Returns:
+        tuple: (accessibility_score, accessible_objects, inaccessible_objects)
+              - accessibility_score: A score between 0-10 indicating the overall accessibility
+              - accessible_objects: Set of indices for accessible objects
+              - inaccessible_objects: Set of indices for inaccessible objects
+    """
+    room_width, room_depth = room_sizes
+    
+    # Create a grid for the room to check pathways
+    grid_resolution = 1  # cm per grid cell
+    grid_width = int(room_width / grid_resolution) + 1
+    grid_depth = int(room_depth / grid_resolution) + 1
+    
+    # Create a grid where 1 = occupied, 0 = free space
+    grid = np.zeros((grid_width, grid_depth))
+    
+    # Mark all objects on the grid
+    for obj in placed_objects:
+        x, y, width, depth, height, name, _, _, _ = obj
+        # Convert to grid coordinates
+        grid_x_start = max(0, int(x / grid_resolution))
+        grid_y_start = max(0, int(y / grid_resolution))
+        grid_x_end = min(grid_width, int((x + depth) / grid_resolution) + 1)
+        grid_y_end = min(grid_depth, int((y + width) / grid_resolution) + 1)
+        
+        # Mark object cells as occupied
+        grid[grid_x_start:grid_x_end, grid_y_start:grid_y_end] = 1
+    
+    # Function to check if there's a clear path of at least path_width
+    def has_clear_path(start_x, start_y, target_x, target_y):
+        """
+        Find a clear path from start to target that is at least path_width wide using A* algorithm.
+        The path can go in any direction (not just straight lines).
+        
+        Args:
+            start_x, start_y: Starting position in grid coordinates
+            target_x, target_y: Target position in grid coordinates
+        
+        Returns:
+            bool: True if there's a clear path, False otherwise
+            list: List of coordinates along the path if found, empty list otherwise
+        """
+        import heapq
+        
+        # Ensure start and target are within grid bounds
+        if (start_x < 0 or start_y < 0 or target_x < 0 or target_y < 0 or 
+            start_x >= grid_width or start_y >= grid_depth or 
+            target_x >= grid_width or target_y >= grid_depth):
+            print(f"Debug: Out of bounds - Start: ({start_x},{start_y}), Target: ({target_x},{target_y}), Grid: {grid_width}x{grid_depth}")
+            return False, []
+            
+        # Check if start position is occupied (can't start from inside an object)
+        if grid[start_x, start_y] == 1:
+            print(f"Debug: Start position ({start_x},{start_y}) is occupied")
+            return False, []
+            
+        # Create a temporary grid copy to allow reaching the target even if it's occupied
+        temp_grid = grid.copy()
+        
+        # Mark the target and adjacent cells as free, to ensure we can 'reach' the object
+        target_area_radius = 1  # Allow reaching 1 cell around the target
+        for dx in range(-target_area_radius, target_area_radius+1):
+            for dy in range(-target_area_radius, target_area_radius+1):
+                nx, ny = target_x + dx, target_y + dy
+                if 0 <= nx < grid_width and 0 <= ny < grid_depth:
+                    # Mark as free to allow reaching
+                    temp_grid[nx, ny] = 0
+            
+        # path_width in grid units
+        path_radius = max(1, int(path_width / grid_resolution) // 2)
+        print(f"Debug: Path radius = {path_radius}, Path width = {path_width}")
+        
+        # Define possible movement directions (including diagonals)
+        directions = [
+            (-1, 0), (1, 0), (0, -1), (0, 1),  # Cardinal directions
+            (-1, -1), (-1, 1), (1, -1), (1, 1)    # Diagonal directions
+        ]
+        
+        # Movement costs (regular and diagonal)
+        costs = [1, 1, 1, 1, 1.414, 1.414, 1.414, 1.414]  # sqrt(2) for diagonal moves
+        
+        # Heuristic function - Manhattan distance
+        def heuristic(x, y):
+            return abs(x - target_x) + abs(y - target_y)
+        
+        # Check if a position has adequate clearance for the path width
+        def has_adequate_clearance(x, y):
+            for r_x in range(-path_radius, path_radius + 1):
+                for r_y in range(-path_radius, path_radius + 1):
+                    check_x, check_y = x + r_x, y + r_y
+                    # Skip points outside the grid bounds
+                    if check_x < 0 or check_y < 0 or check_x >= grid_width or check_y >= grid_depth:
+                        continue
+                    # Check if there's an obstacle using our temporary grid
+                    if temp_grid[check_x, check_y] == 1:
+                        return False
+            return True
+        
+        # A* implementation
+        open_set = []  # Priority queue of nodes to explore
+        came_from = {}  # To reconstruct the path
+        g_score = {}  # Cost from start to current node
+        f_score = {}  # Estimated total cost from start to goal through current node
+        
+        # Initialize with starting point
+        start = (start_x, start_y)
+        goal = (target_x, target_y)
+        
+        # Initialize scores for start node
+        g_score[start] = 0
+        f_score[start] = heuristic(start_x, start_y)
+        
+        # Add start to open_set with priority f_score
+        heapq.heappush(open_set, (f_score[start], start))
+        
+        while open_set:
+            # Get node with lowest f_score
+            current_f, current = heapq.heappop(open_set)
+            current_x, current_y = current
+            
+            # Check if we've reached target or are close enough (within 2 cells)
+            if abs(current_x - target_x) <= 2 and abs(current_y - target_y) <= 2:
+                # Reconstruct the path
+                path = [current]
+                while current in came_from:
+                    current = came_from[current]
+                    path.append(current)
+                path.reverse()  # Start to goal
+                print(f"Debug: Path found from ({start_x},{start_y}) to ({target_x},{target_y})")
+                return True, path
+                
+            # Try each neighbor direction
+            for i, (dx, dy) in enumerate(directions):
+                next_x, next_y = current_x + dx, current_y + dy
+                neighbor = (next_x, next_y)
+                
+                # Check if the neighbor is within bounds of the grid
+                if next_x < 0 or next_y < 0 or next_x >= grid_width or next_y >= grid_depth:
+                    continue
+                
+                # Check if there's adequate clearance for the path width
+                if not has_adequate_clearance(next_x, next_y):
+                    continue
+                    
+                # Calculate tentative g_score (cost from start to neighbor through current)
+                tentative_g_score = g_score.get(current, float('inf')) + costs[i]
+                
+                # If this path is better than any previous one
+                if tentative_g_score < g_score.get(neighbor, float('inf')):
+                    # Record this path
+                    came_from[neighbor] = current
+                    g_score[neighbor] = tentative_g_score
+                    f_score[neighbor] = tentative_g_score + heuristic(next_x, next_y)
+                    
+                    # Add to open_set if not already there
+                    if neighbor not in [item[1] for item in open_set]:
+                        heapq.heappush(open_set, (f_score[neighbor], neighbor))
+        
+        # If we get here, no path was found
+        print(f"Debug: No path found from ({start_x},{start_y}) to ({target_x},{target_y})")
+        return False, []
+    
+    # Get door positions
+    door_positions = []
+    
+    for door in windows_doors:
+        if 'door' in door[0].lower():  # Only check actual doors, not windows
+            door_type = door[1]  # wall type (top, bottom, left, right)
+            door_x, door_y = door[2], door[3]  # position
+            door_width = door[4]  # width
+            print(f"Door: {door}")
+            
+            # Calculate the center of the door
+            if door_type in ["top", "bottom"]:
+                # For top/bottom doors, the y-coordinate is the position + half the width
+                door_center_y = door_y + door_width/2
+                # X-coordinate depends on which wall
+                door_center_x = 0 if door_type == "top" else room_width
+            else:  # left or right
+                # For left/right doors, the x-coordinate is the position + half the width
+                door_center_x = door_x + door_width/2
+                # Y-coordinate depends on which wall
+                door_center_y = 0 if door_type == "left" else room_depth
+            
+            # Convert to grid coordinates
+            door_grid_x = int(door_center_x / grid_resolution)
+            door_grid_y = int(door_center_y / grid_resolution)
+            
+            # Ensure the door position is inside the grid
+            door_grid_x = max(0, min(grid_width-1, door_grid_x))
+            door_grid_y = max(0, min(grid_depth-1, door_grid_y))
+            
+            print(f"Door at wall {door_type} converted to grid: ({door_grid_x}, {door_grid_y})")
+            door_positions.append((door_grid_x, door_grid_y))
+    
+    # Check pathway from each door to each object
+    accessible_objects = set()
+    inaccessible_objects = set()
+    accessible_paths = []
+    
+    for door_grid_x, door_grid_y in door_positions:
+        for i, obj in enumerate(placed_objects):
+            x, y, width, depth, height, name, _, _, _ = obj
+            
+            # Get multiple points around the object's perimeter and interior for more realistic accessibility
+            perimeter_points = []
+            
+            # Perimeter edges - sample points around all sides of the object
+            spacing = max(5, min(10, int(min(width, depth) / 4)))  # Dynamic sampling based on object size
+            
+            # Left edge (x constant, y varies)
+            for j in range(0, int(width), spacing):
+                perimeter_points.append((int(x / grid_resolution), int((y + j) / grid_resolution)))
+            
+            # Right edge (x+depth constant, y varies)
+            for j in range(0, int(width), spacing):
+                perimeter_points.append((int((x + depth) / grid_resolution), int((y + j) / grid_resolution)))
+            
+            # Top edge (y constant, x varies)
+            for j in range(0, int(depth), spacing):
+                perimeter_points.append((int((x + j) / grid_resolution), int(y / grid_resolution)))
+            
+            # Bottom edge (y+width constant, x varies)
+            for j in range(0, int(depth), spacing):
+                perimeter_points.append((int((x + j) / grid_resolution), int((y + width) / grid_resolution)))
+            
+            # Add the four corners
+            perimeter_points.append((int(x / grid_resolution), int(y / grid_resolution)))  # Top-left
+            perimeter_points.append((int((x + depth) / grid_resolution), int(y / grid_resolution)))  # Top-right
+            perimeter_points.append((int(x / grid_resolution), int((y + width) / grid_resolution)))  # Bottom-left
+            perimeter_points.append((int((x + depth) / grid_resolution), int((y + width) / grid_resolution)))  # Bottom-right
+            
+            # Add center point of the object
+            perimeter_points.append((int((x + depth/2) / grid_resolution), int((y + width/2) / grid_resolution)))
+            
+            # Remove duplicates
+            perimeter_points = list(set(perimeter_points))
+            
+            # Check if any perimeter point has a clear path to the door
+            has_access = False
+            for point_x, point_y in perimeter_points:
+                path_exists, path_coords = has_clear_path(door_grid_x, door_grid_y, point_x, point_y)
+                if path_exists:
+                    print(path_coords)
+                    # Store the actual path found by BFS
+                    accessible_paths.append(path_coords)
+                    
+                    has_access = True
+                    accessible_objects.add(i)
+                    break
+            
+            # If no accessible path was found for this object from this door
+            if not has_access:
+                inaccessible_objects.add(i)
+    
+    # Calculate accessibility score
+    # If no objects are accessible, score is 0
+    # If all objects are accessible, score is 10
+    # Otherwise, score is based on the percentage of accessible objects
+    if len(placed_objects) == 0:
+        accessibility_score = 10  # No objects means perfect accessibility
+    else:
+        accessibility_score = len(accessible_objects) / len(placed_objects) * 10
+    
+    # Remove objects from inaccessible_objects that were found accessible from other doors
+    inaccessible_objects = inaccessible_objects - accessible_objects
+    
+    return accessibility_score, accessible_objects, inaccessible_objects
+
 def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_doors=None, requested_objects = []):
     """
     Evaluate the quality of a room layout based on various criteria.
@@ -20,6 +303,7 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
         float: Overall score for the layout (0-100)
         dict: Detailed scores for each criterion
     """
+
     room_width, room_depth = room_sizes
     total_score = 0
     scores = {}
@@ -33,6 +317,8 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
                 other_x, other_y, other_width, other_depth, other_height, other_name, other_corner, other_against_wall, other_shadow = other_obj
                 if check_overlap((x, y, width, depth), (other_x, other_y, other_width, other_depth)):
                     no_overlap_score = 0
+        if windows_doors_overlap(windows_doors, x, y, height, width, depth, room_width, room_depth, shadow):
+            no_overlap_score = 0
 
     scores["no_overlap"] = no_overlap_score
     total_score += scores["no_overlap"]
@@ -44,18 +330,12 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
         wall = check_which_wall((x,y,width,depth), room_width, room_depth)
         
         # Check wall placement
-        print("must_be_against_wall")
-        print(must_be_against_wall)
-        print("wall")
-        print(wall)
         if must_be_against_wall and wall == "middle":
-            print("wall constraint violated")
             wall_corner_score = 0  # Zero points if wall constraint violated
             break
             
         # Check corner placement
         if must_be_corner and wall != "top-left" and wall != "top-right" and wall != "bottom-left" and wall != "bottom-right":
-            print("corner constraint violated")
             wall_corner_score = 0  # Zero points if corner constraint violated
             break
         wall_corner_score = 10
@@ -106,16 +386,12 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
         else:
             wall_coverage[wall] += width if wall in ["top", "bottom"] else depth
             
-    print("wall coverage")
-    print(wall_coverage)      
     # Calculate wall coverage percentage
     for wall in wall_coverage:
         if wall == "top" or wall == "bottom":
             coverage_percent = (wall_coverage[wall] / room_depth) * 100
         elif wall == "left" or wall == "right":
             coverage_percent = (wall_coverage[wall] / room_width) * 100
-        print("coverage_percent")
-        print(coverage_percent)   
         if coverage_percent >= 70:  # Reward for good wall coverage
             wall_coverage_score += 5
             
@@ -142,37 +418,59 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
     total_score += scores["corner_coverage"]
     # 5. Door Position Constraints (10 points) 
     door_sink_score = 0
+    sink_score = 0
+    sink_symmetrial_door_score = 0
+    door_sink_distance_score = 0
+    toilet_to_door_score = 10
     if windows_doors:
         for obj in placed_objects:
             x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
             for door in windows_doors:
                 door_wall = door[1]
+                door_x, door_y, door_width, door_depth = door[2], door[3], door[4], door[5]
                 obj_wall = check_which_wall((x,y,width,depth), room_width, room_depth)
                 opposite_wall = get_opposite_wall(door_wall)
-                if name == "Sink" and obj_wall == opposite_wall:
-                    door_sink_score += 5  # Reward sink opposite door
+                if (name == "Sink" or name == "Double Sink") and obj_wall == opposite_wall:
+                    sink_score += 10  # Reward sink opposite door
+                    if (door_x <= x+depth and door_x + door_width  >= x and door_x - 20 <= x and door_x+door_width+20 >= x+ depth ) or (door_y <= y+width and door_y + door_width >= y and door_y - 20 <= y and door_y+door_width+20 >= y+ width ):
+                        sink_symmetrial_door_score += 10 
                 
-                elif name == "Sink" and door_wall != obj_wall:
+                elif (name == "Sink" or name == "Double Sink") and door_wall != obj_wall:
                     door_sink_score += 5  # Reward sink opposite door
-                
-                elif name == "Toilet" and get_opposite_wall(door_wall) != obj_wall:
+                    if(check_euclidean_distance((door_x, door_y, door_width, door_depth), (x, y, width, depth)) < 200):
+                        door_sink_distance_score += 10  # Reward sink opposite door
+                    
+                elif name in ["Toilet", "Toilet Bidet"] and get_opposite_wall(door_wall) != obj_wall:
                     door_sink_score += 5  # Reward toilet not opposite door
-                elif name == "Toilet" and door_wall == obj_wall:
+                    if(door_x <= x+depth and door_x + door_width  >= x and door_x - 40 <= x and door_x+door_width+40 >= x+ depth ) or (door_y <= y+width and door_y + door_width >= y and door_y - 40 <= y and door_y+door_width+40 >= y+ width ):
+                        toilet_to_door_score =0
+                        
+                elif name in ["Toilet", "Toilet Bidet"] and door_wall == obj_wall:
                     door_sink_score += 5  # Reward toilet SAME door - WE WANT TO HIDE
-    door_sink_score = door_sink_score/20 *10             
-    scores["door_sink"] = max(door_sink_score, 0)
-    total_score += scores["door_sink"]
+    door_sink_score = door_sink_score/15 *10             
+    scores["door_sink_toilet"] = max(door_sink_score, 0)
+    scores["sink_opposite_door"] = max(sink_score, 0)
+    scores["sink_symmetrial_door"] = max(sink_symmetrial_door_score, 0)
+    scores["door_sink_distance"] = max(door_sink_distance_score, 0)
+    scores["toilet_to_door"] = max(toilet_to_door_score, 0)
+    total_score += scores["door_sink_toilet"]
+    total_score += scores["sink_opposite_door"]
+    total_score += scores["sink_symmetrial_door"]
+    total_score += scores["door_sink_distance"]
+    #total_score += scores["toilet_to_door"]
 
-    # toilet is in the corner
+    # toilet is in the corner, if multiple toilet in room not work
     corner_toilet_score = 0
     for obj in placed_objects:
         x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
-        if name == "Toilet":
+        if name in ["Toilet", "Toilet Bidet"]:
             wall = check_which_wall((x,y,width,depth), room_width, room_depth)
             if wall in ["top-left", "top-right", "bottom-left", "bottom-right"]:
                 corner_toilet_score += 10
-    scores["corner_toilet"] = corner_toilet_score
-    total_score += scores["corner_toilet"]
+            else:
+                corner_toilet_score = 0
+            scores["corner_toilet"] = corner_toilet_score
+            total_score += scores["corner_toilet"]
 
     # 6. Object Spacing (10 points)
     spacing_score = len(placed_objects)*10
@@ -201,8 +499,6 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
 
             # Calculate minimum corner-to-corner distance
             min_dist = min_corner_distance(corners1, corners2)
-            print("min_dist")
-            print(min_dist)
             if 10 < min_dist < 30:  # Too much free space
                 spacing_score -= 5
                 
@@ -218,7 +514,7 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
     requested_score = 0
     for obj in placed_objects:
         x, y, width, depth, height, name, _, _, shadow = obj
-        if requested_objects and name in requested_objects:
+        if requested_objects and name.lower() in [obj.lower() for obj in requested_objects]:
             requested_score += 1
 
     # Avoid division by zero if requested_objects is empty
@@ -257,7 +553,7 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
     bathtub_placeement = 0
     for obj in placed_objects:
         x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
-        if name == "Bathtub":
+        if "Bathtub" in name or "Asymmetrical Bathtub" in name:
             wall = check_which_wall((x,y,width,depth), room_width, room_depth)
             door_wall = "top"
             for dor in windows_doors:
@@ -275,122 +571,21 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
     scores["bathtub_placement"] = max(bathtub_placeement, 0)
     total_score += scores["bathtub_placement"]
     # 8. Check pathway accessibility from doors (10 points)
-    pathway_score = 0
-    if windows_doors:
-        # Define a grid for the room to check pathways
-        grid_resolution = 1  # cm per grid cell
-        grid_width = int(room_width / grid_resolution) + 1
-        grid_depth = int(room_depth / grid_resolution) + 1
+    # pathway_score = 0
+    # if windows_doors:
+    #     # Use the check_pathway_accessibility function to evaluate accessibility
+    #     accessibility_score, accessible_objects, inaccessible_objects = check_pathway_accessibility(placed_objects, room_sizes, windows_doors, path_width=60)
         
-        # Create a grid where 1 = occupied, 0 = free space
-        grid = np.zeros((grid_width, grid_depth))
+    #     # Set pathway score from the accessibility score
+    #     pathway_score = accessibility_score
         
-        # Mark all objects on the grid
-        for obj in placed_objects:
-            x, y, width, depth, height, name, _, _, _ = obj
-            # Convert to grid coordinates
-            grid_x_start = max(0, int(x / grid_resolution))
-            grid_y_start = max(0, int(y / grid_resolution))
-            grid_x_end = min(grid_width, int((x + depth) / grid_resolution) + 1)
-            grid_y_end = min(grid_depth, int((y + width) / grid_resolution) + 1)
-            
-            # Mark object cells as occupied
-            grid[grid_x_start:grid_x_end, grid_y_start:grid_y_end] = 1
-        
-        # Function to check if there's a clear path of at least 60cm width
-        def has_clear_path(start_x, start_y, target_x, target_y):
-            # Simple check for straight line path with 60cm clearance
-            path_width = 60 / grid_resolution  # 60cm in grid units
-            
-            # Check horizontal path
-            if abs(start_y - target_y) <= path_width:
-                x_min, x_max = min(start_x, target_x), max(start_x, target_x)
-                y_min = max(0, int(min(start_y, target_y) - path_width/2))
-                y_max = min(grid_depth, int(max(start_y, target_y) + path_width/2))
-                
-                # Check if path is clear
-                if not np.any(grid[x_min:x_max, y_min:y_max]):
-                    return True
-            
-            # Check vertical path
-            if abs(start_x - target_x) <= path_width:
-                y_min, y_max = min(start_y, target_y), max(start_y, target_y)
-                x_min = max(0, int(min(start_x, target_x) - path_width/2))
-                x_max = min(grid_width, int(max(start_x, target_x) + path_width/2))
-                
-                # Check if path is clear
-                if not np.any(grid[x_min:x_max, y_min:y_max]):
-                    return True
-            
-            return True
-        
-        # Check pathway from each door to each object
-        door_access_count = 0
-        total_checks = 0
-        
-        for door in windows_doors:
-            if 'door' in door[0].lower():  # Only check actual doors, not windows
-                door_type = door[1]  # wall type (top, bottom, left, right)
-                door_x, door_y = door[2], door[3]  # position
-                door_width = door[4]  # width
-                
-                # Convert door position to grid coordinates
-                door_grid_x = int(door_x / grid_resolution)
-                door_grid_y = int(door_y / grid_resolution)
-                
-                # For each object, check if there's a clear path to at least one side
-                for obj in placed_objects:
-                    x, y, width, depth, height, name, _, _, _ = obj
-                    total_checks += 1
-                    
-                    # Get multiple points around the object's perimeter for more realistic accessibility
-                    perimeter_points = []
-                    
-                    # Left side - multiple points along the left edge
-                    for i in range(1, int(width / grid_resolution), 10):  # Check every 10cm
-                        perimeter_points.append((int(x / grid_resolution), int((y + i) / grid_resolution)))
-                    
-                    # Right side - multiple points along the right edge
-                    for i in range(1, int(width / grid_resolution), 10):
-                        perimeter_points.append((int((x + depth) / grid_resolution), int((y + i) / grid_resolution)))
-                    
-                    # Top side - multiple points along the top edge
-                    for i in range(1, int(depth / grid_resolution), 10):
-                        perimeter_points.append((int((x + i) / grid_resolution), int(y / grid_resolution)))
-                    
-                    # Bottom side - multiple points along the bottom edge
-                    for i in range(1, int(depth / grid_resolution), 10):
-                        perimeter_points.append((int((x + i) / grid_resolution), int((y + width) / grid_resolution)))
-                    
-                    # Add the corners and midpoints of sides for good measure
-                    perimeter_points.extend([
-                        (int(x / grid_resolution), int(y / grid_resolution)),  # top-left corner
-                        (int((x + depth) / grid_resolution), int(y / grid_resolution)),  # top-right corner
-                        (int(x / grid_resolution), int((y + width) / grid_resolution)),  # bottom-left corner
-                        (int((x + depth) / grid_resolution), int((y + width) / grid_resolution)),  # bottom-right corner
-                        (int(x / grid_resolution), int((y + width/2) / grid_resolution)),  # middle of left side
-                        (int((x + depth) / grid_resolution), int((y + width/2) / grid_resolution)),  # middle of right side
-                        (int((x + depth/2) / grid_resolution), int(y / grid_resolution)),  # middle of top side
-                        (int((x + depth/2) / grid_resolution), int((y + width) / grid_resolution))   # middle of bottom side
-                    ])
-                    
-                    # Check if any perimeter point has a clear path to the door
-                    has_access = False
-                    for point_x, point_y in perimeter_points:
-                        if has_clear_path(door_grid_x, door_grid_y, point_x, point_y):
-                            has_access = True
-                            break
-                    
-                    if has_access:
-                        door_access_count += 1
-        
-        # Calculate pathway score (percentage of objects with door access)
-        if total_checks > 0:
-            pathway_score = (door_access_count / total_checks) * 10
-        else:
-            pathway_score = 0
-    scores["pathway_accessibility"] = pathway_score
-    total_score += scores["pathway_accessibility"]
+    #     # According to project requirements, layouts with scores < 4 are rejected
+    #     if pathway_score < 4:
+    #         print("Pathway accessibility score too low: {}".format(pathway_score))
+    #         # Keep the score but mark it as problematic in the logs
+    
+    # scores["pathway_accessibility"] = pathway_score
+    # total_score += scores["pathway_accessibility"]
     ###### Check how much free space is in front of the sink and toilet
     # This evaluates accessibility and usability of these key fixtures
     sink_space = 0
@@ -400,7 +595,7 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
     room_width, room_depth = room_sizes
     
     for obj in placed_objects:
-        if obj[5] == "Sink":
+        if obj[5] == "Sink" or obj[5] == "Double Sink":
             space = calculate_space_before_object(obj, placed_objects, room_sizes)
             sink_space += space
             sink_count += 1
@@ -427,27 +622,154 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
     total_score += sink_space_score
     
 
-    #### check the space before the door
-    door_space = 0
-    door_count = 0
-    for obj in placed_objects:
-        if obj[5] == "Door":
-            space = calculate_space_before_object(obj, placed_objects, room_sizes)
-            door_space += space
-            door_count += 1
-    #the maximum point is the door_width*room_depth or door_width*room_width, what is bigger
-    max_door_space = min(door_width*room_depth, door_width*room_width)
-    # if no door no score for door
-    if door_count != 0:
-        scores["door_free_space"] = (door_space / max_door_space)*10
-        scores["door_free_space"] = min(10, scores["door_free_space"])
-        total_score += scores["door_free_space"]
-    # check if there is a score which null
-    if scores["no_overlap"] == 0 or scores["wall_corner_constraints"] == 0 or scores["pathway_accessibility"] < 4:
+    # #### check the space before the door
+    # door_space = 0
+    # door_count = 0
+    # for door in windows_doors:
+    #     if 'door' in door[0].lower():
+    #         space = calculate_space_before_object(door, placed_objects, room_sizes)
+    #         door_space += space
+    #         door_count += 1
+    # #the maximum point is the door_width*room_depth or door_width*room_width, what is bigger
+    # max_door_space = min(door_width*room_depth, door_width*room_width)
+    
+    # Check minimum distance between objects on opposite walls
+    has_sufficient_distance, violations = check_opposite_walls_distance(placed_objects, room_sizes, min_distance=60)
+    
+    # Add opposite walls distance score (10 if no violations, otherwise scaled based on number of violations)
+    if has_sufficient_distance:
+        scores["opposite_walls_distance"] = 10
+    else:
+        # Calculate penalty based on number of violations and severity
+        scores["opposite_walls_distance"] = 0
+    
+    # Add the score to the total
+    total_score += scores["opposite_walls_distance"]
+    
+    # Check if there is a score which is below critical thresholds
+    if scores["no_overlap"] == 0 or scores["wall_corner_constraints"] == 0  or scores["opposite_walls_distance"] < 10 :
+        print(f"Critical constraint violated: overlap={scores['no_overlap']}, wall={scores['wall_corner_constraints']}, "
+              f"opposite_walls={scores['opposite_walls_distance']}")
         total_score = 0
+
     else:
         total_score = (total_score / len(scores)) * 10
+
+    if scores["door_sink_toilet"] == 0 or scores["sink_opposite_door"] == 0:
+        
+        total_score = max(total_score - 10, 0)
+    
     return total_score, scores
+
+
+def check_opposite_walls_distance(placed_objects, room_sizes, min_distance=60):
+    """
+    Check that objects placed on opposite walls have at least min_distance space between them.
+    This ensures sufficient clearance for movement between opposite fixtures.
+    
+    Args:
+        placed_objects: List of objects with positions and dimensions (x, y, width, depth, height, name, ...)
+        room_sizes: Tuple of (room_width, room_depth)
+        min_distance: Minimum distance required between opposite objects in cm (default: 60cm)
+        
+    Returns:
+        tuple: (bool, list) - Boolean indicating if all objects meet the distance requirement,
+               and a list of tuples containing the indices, names and actual distances of problematic object pairs
+    """
+    room_width, room_depth = room_sizes
+    violations = []
+    
+    # Define the walls
+    WALL_LEFT = 0    # x = 0
+    WALL_RIGHT = 1   # x = room_depth
+    WALL_TOP = 2     # y = 0
+    WALL_BOTTOM = 3  # y = room_width
+    
+    # Group objects by the walls they're adjacent to
+    wall_objects = {WALL_LEFT: [], WALL_RIGHT: [], WALL_TOP: [], WALL_BOTTOM: []}
+    
+    # Threshold for considering an object to be against a wall (in cm)
+    wall_threshold = 5  # objects within 5cm of wall are considered adjacent to the wall
+    # Assign objects to walls
+    for i, obj in enumerate(placed_objects):
+        x, y, width, depth, height, name, _, _, _ = obj
+        
+        wall = check_which_wall((x,y,width,depth), room_width, room_depth)
+        if wall == "left":
+            wall_objects[WALL_LEFT].append((i, obj))
+        elif wall == "right":
+            wall_objects[WALL_RIGHT].append((i, obj))
+        elif wall == "top":
+            wall_objects[WALL_TOP].append((i, obj))
+        elif wall == "bottom":
+            wall_objects[WALL_BOTTOM].append((i, obj))
+        elif wall == "bottom-left":
+            if width > depth:
+                wall_objects[WALL_BOTTOM].append((i, obj))
+            elif width == depth:
+                wall_objects[WALL_BOTTOM].append((i, obj))
+                wall_objects[WALL_LEFT].append((i, obj))
+            else:
+                wall_objects[WALL_LEFT].append((i, obj))
+        elif wall == "bottom-right":
+
+            if width > depth:
+                wall_objects[WALL_BOTTOM].append((i, obj))
+            elif width == depth:
+                wall_objects[WALL_BOTTOM].append((i, obj))
+                wall_objects[WALL_RIGHT].append((i, obj))
+            else:
+                wall_objects[WALL_RIGHT].append((i, obj))
+        elif wall == "top-left":
+            if width > depth:
+                wall_objects[WALL_TOP].append((i, obj))
+            elif width == depth:
+                wall_objects[WALL_TOP].append((i, obj))
+                wall_objects[WALL_LEFT].append((i, obj))
+            else:
+                wall_objects[WALL_LEFT].append((i, obj))
+        elif wall == "top-right":
+            if width > depth:
+                wall_objects[WALL_TOP].append((i, obj))
+            elif width == depth:
+
+                wall_objects[WALL_TOP].append((i, obj))
+                wall_objects[WALL_RIGHT].append((i, obj))
+            else:
+                wall_objects[WALL_RIGHT].append((i, obj))
+    
+    # Check distance between objects on opposite walls
+    # Left vs Right wall
+    for left_idx, left_obj in wall_objects[WALL_LEFT]:
+        left_x, left_y, left_width, left_depth, _, left_name, *_ = left_obj
+        
+        for right_idx, right_obj in wall_objects[WALL_RIGHT]:
+            right_x, right_y, right_width, right_depth, _, right_name, *_ = right_obj
+            if (left_x <= right_x + right_depth and left_x + left_depth >= right_x):
+                # Calculate the distance between the objects in the x-direction
+                distance = right_y - (left_y + left_width)
+                if distance < min_distance:
+                    violations.append((left_idx, right_idx, left_name, right_name, distance))
+                    print(f"Opposite walls distance violations:                   ")
+                    for left_idx, right_idx, left_name, right_name, distance in violations:
+                        print(f"  - {left_name}(#{left_idx}) <-> {right_name}(#{right_idx}): {distance:.1f}cm (below 60cm minimum)")
+    
+    # Top vs Bottom wall
+    for top_idx, top_obj in wall_objects[WALL_TOP]:
+        top_x, top_y, top_width, top_depth, _, top_name, *_ = top_obj
+        
+        for bottom_idx, bottom_obj in wall_objects[WALL_BOTTOM]:
+            bottom_x, bottom_y, bottom_width, bottom_depth, _, bottom_name, *_ = bottom_obj
+            if (top_y <= bottom_y + bottom_width and top_y + top_width >= bottom_y):
+                # Calculate the distance between the objects in the x-direction
+                distance = bottom_x - (top_x + top_width)
+                if distance < min_distance:
+                    violations.append((top_idx, bottom_idx, top_name, bottom_name, distance))
+                    print(f"Opposite walls distance violations:                   ")
+                    for top_idx, bottom_idx, top_name, bottom_name, distance in violations:
+                        print(f"  - {top_name}(#{top_idx}) <-> {bottom_name}(#{bottom_idx}): {distance:.1f}cm (below 60cm minimum)")
+    
+    return len(violations) == 0, violations
 
 
 def compare_room_layouts(layouts, room_sizes, object_types_dict, windows_doors=None, requested_objects=[]):
@@ -481,7 +803,8 @@ def compare_room_layouts(layouts, room_sizes, object_types_dict, windows_doors=N
         # Count how many requested objects were successfully placed
         placed_objects = [obj[5] for obj in layout]
         requested_count = len(requested_objects)
-        placed_count = len([obj for obj in placed_objects if obj in requested_objects])
+
+        placed_count = len([obj.lower() for obj in placed_objects if obj.lower() in [obj.lower() for obj in requested_objects]])
         placement_success_rate = placed_count / requested_count if requested_count > 0 else 0
         
         # Evaluate the layout with full detailed scoring
@@ -498,7 +821,6 @@ def compare_room_layouts(layouts, room_sizes, object_types_dict, windows_doors=N
         total_area = room_width * room_depth
         used_area = sum(obj[2] * obj[3] for obj in layout)  # width * depth
         space_efficiency = used_area / total_area
-        
         # Store layout analysis data
         layout_analysis.append({
             "layout_id": i,
@@ -523,7 +845,7 @@ def compare_room_layouts(layouts, room_sizes, object_types_dict, windows_doors=N
             print(f"New best layout: {i} with score {total_score:.2f}")
     
     # If no good layouts were found, handle gracefully
-    if best_layout is None and layouts:
+    if best_layout is None and layouts :
         print("Warning: No optimal layout found, using first layout as fallback")
         best_layout = layouts[0]
         best_score = all_scores[0][1] if all_scores else 0
@@ -542,7 +864,6 @@ def compare_room_layouts(layouts, room_sizes, object_types_dict, windows_doors=N
         else:
             # Fallback if exact match not found
             enriched_scores.append((layout, score, {}))
-    
     return best_layout, best_score, enriched_scores
 
 
@@ -657,8 +978,6 @@ def optimization(placed_obj, room_sizes):
                     del placed_obj[i]
 
                     placed_obj.insert(i, (new_x, new_y, width, depth, height, _1, _2, _3, shadow))
-                    print("optimized")
-                    print(placed_obj)
             ## TODO kiterjesztés méretnövelés
 
     return placed_obj
@@ -677,6 +996,8 @@ def optimize_object(rect, shadow, room_width, room_depth, placed_obj):
         conv_placed_obj = convert_values((x,y,width,depth), shadow, wall)
         # if rect wall and wall contains the same wall  name
         if rect_wall in wall or wall in rect_wall:
+            print("optimize_object")
+            print(rect_wall,wall)
             # check the distance of the objects from each other
             dist,rect_smaller = check_distance(conv_rect, conv_placed_obj)
             if dist < 50 and dist > 0:
@@ -1312,7 +1633,7 @@ def suggest_additional_fixtures(placed_objects, room_sizes, object_types_dict, a
     placed_object_types = [obj[5] for obj in placed_objects]
     common_fixtures = [
         "Toilet", "Sink", "Shower", "Bathtub", "Cabinet", 
-        "Double Sink", "Washing Machine", "Washing Dryer"
+        "Double Sink", "Washing Machine", "Washing Dryer", "Washing Machine and Dryer", "Symmetrical Bathtub", "Asymmetrical Bathtub", "Toilet Bidet"
     ]
     room_width, room_depth = room_sizes
     object_names = [value["name"] for value in object_types_dict.values()]
@@ -1441,12 +1762,16 @@ def maximize_object_sizes(positions, room_sizes, object_types_dict, increment=5)
     # Keep trying to expand until no more objects can be expanded
     any_expanded = False
     updated_objects = positions.copy()
+    # only extend objects: Bathtub, shower, sink
+    objects_to_expand = ["Bathtub", "Shower", "Sink", "Asymmetrical Bathtub"]
+    
     # only keep the x, y, width, depth, shadow
-    objects_in_calculate = [(x, y, width, depth, shadow) for x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow in positions]
+    objects_in_calculate = [(x, y, width, depth, shadow) for x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow in positions if name in objects_to_expand]
     print("objects_in_calculate")
     for i, obj in enumerate(updated_objects):
         x, y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
-
+        if name not in objects_to_expand:
+            continue
         obj_def= get_object_type(name)
         if obj_def is None:
             print("object not found")
@@ -1494,9 +1819,7 @@ def maximize_object_sizes(positions, room_sizes, object_types_dict, increment=5)
             
         # Update positions for next iteration
         positions = updated_objects.copy()
-        print("updated_objects")
-        for i in updated_objects:
-            print(i)
+
     return updated_objects
 
 def switch_objects(positions, object_types_dict, room_sizes, selected_obj_idx, new_object_name):
@@ -1924,13 +2247,10 @@ def place_cabinets_against_walls(object_positions, room_size, doors, min_cabinet
                 else:  # Bottom wall
                     x = room_width - max_cabinet_depth
                     cabinet_depth = max_cabinet_depth
-                print("Cabinet depth:", cabinet_depth)
-                print("Cabinet width:", max_possible_width)
                 # Create a rectangle representing this cabinet
                 cabinet_x1, cabinet_y1 = x, y
                 cabinet_x2 = x + cabinet_depth
                 cabinet_y2 = y + max_possible_width
-                print(cabinet_x1, cabinet_y1, cabinet_x2, cabinet_y2)
                 # Check if this cabinet overlaps with any occupied area
                 cabinet_rect = (cabinet_x1, cabinet_y1, cabinet_x2, cabinet_y2)
                 if not any(rects_overlap(cabinet_rect, area) for area in occupied_areas):

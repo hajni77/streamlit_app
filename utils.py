@@ -2,7 +2,7 @@
 import random
 import json
 import streamlit as st
-
+import math
 OBJECT_TYPES = []
 with open('object_types.json') as f:
     OBJECT_TYPES = json.load(f)
@@ -240,7 +240,7 @@ def is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_de
     
     return True  # Placement is valid
 def check_bathtub_shadow(new_rect,placed_rects, shadow_space,room_width, room_depth, positions, obj_type):
-    if obj_type == "bathtub":
+    if obj_type == "bathtub" or obj_type == "asymmetrical bathtub":
         return True
     # search for bathtub
     # check if there is a bathtub
@@ -251,7 +251,7 @@ def check_bathtub_shadow(new_rect,placed_rects, shadow_space,room_width, room_de
     # search for bathtub
 
     for object_position in positions:
-        if object_position[5] == "Bathtub":
+        if object_position[5] == "Bathtub" or object_position[5] == "Asymmetrical Bathtub":
             bathtub_rect = object_position[0:4]
             x,y,width,depth = bathtub_rect
                 
@@ -268,7 +268,7 @@ def check_bathtub_shadow(new_rect,placed_rects, shadow_space,room_width, room_de
             if shadow_area < required_shadow_area:
                 return False
     for object_position in positions:
-        if object_position[5] != "Bathtub":
+        if object_position[5] != "Bathtub" or object_position[5] != "Asymmetrical Bathtub":
             rect = object_position[0:4]
             x,y,width,depth = rect
             rect_shadow_space = (i for i in object_position[8])
@@ -302,7 +302,7 @@ def check_bathtub_shadow(new_rect,placed_rects, shadow_space,room_width, room_de
         return False
         
     return True
-def check_door_sink_placement(new_rect, placed_objects, windows_doors, room_width, room_depth):
+def check_door_sink_placement(new_rect, placed_objects, windows_doors, room_width, room_depth, object_type):
     """
     Check if a sink is placed behind an inward-opening door on the hinge side.
     This prevents sinks from being blocked by the door or blocking the door's movement.
@@ -318,14 +318,9 @@ def check_door_sink_placement(new_rect, placed_objects, windows_doors, room_widt
         bool: True if placement is valid (no sink behind inward door), False otherwise
     """
     # Check if the new object is a sink, only one object TODO
-    new_obj_is_sink = False
-    if len(new_rect) > 4 and isinstance(new_rect[5], str) and ('sink' in new_rect[5].lower() or 'Sink' in new_rect[5]):
-        new_obj_is_sink = True
-        new_sink_x, new_sink_y, new_sink_width, new_sink_depth = new_rect[0:4]
-    
+    hinge_area = None
     # Iterate through all doors
     for door in windows_doors:
-        print(door)
         if 'door' in door[0].lower():  # Only check actual doors
             door_type = door[1]  # wall type (top, bottom, left, right)
             door_x, door_y = door[2], door[3]  # position
@@ -336,44 +331,45 @@ def check_door_sink_placement(new_rect, placed_objects, windows_doors, room_widt
             # Only check inward-opening doors
             if door_way == "inward" or door_way == "Inward":
                 # Calculate the area behind the door hinge (not the entire swing area)
-                hinge_area = None
                 
                 if door_type == "top":
                     if door_hinge == "Left":
                         # Door hinged on left side of the opening
-                        hinge_area = (0, door_y+door_width, 50, 50)  # Area behind left hinge
+                        hinge_area = (0, door_y+door_width, door_width, door_width)  # Area behind left hinge
                     else:  # right hinge
                         # Door hinged on right side of the opening
-                        hinge_area = (0, door_y - 50, 50, 50)  # Area behind right hinge
+                        hinge_area = (0, door_y - door_width, door_width, door_width)  # Area behind right hinge
                 
                 elif door_type == "bottom":
                     if door_hinge == "Left":
                         # Door hinged on left side of the opening
-                        hinge_area = (room_width - 50, door_y-50, 50, 50)  # Area behind left hinge
+                        hinge_area = (room_width - door_width, door_y-door_width, door_width, door_width)  # Area behind left hinge
                     else:  # right hinge
                         # Door hinged on right side of the opening
-                        hinge_area = (room_width - 50, door_y + door_width , 50, 50)  # Area behind right hinge
+                        hinge_area = (room_width - door_width, door_y + door_width , door_width, door_width)  # Area behind right hinge
                 
                 elif door_type == "left":
                     if door_hinge == "Left":
                         # Door hinged on top side of the opening
-                        hinge_area = (door_x-50, 0, 50, 50)  # Area behind top hinge
+                        hinge_area = (door_x-door_width, 0, door_width, door_width)  # Area behind top hinge
                     else:  # bottom hinge
                         # Door hinged on bottom side of the opening
-                        hinge_area = (door_x + door_width , 0, 50, 50)  # Area behind bottom hinge
+                        hinge_area = (door_x + door_width , 0, door_width, door_width)  # Area behind bottom hinge
                 
                 elif door_type == "right":
                     if door_hinge == "Left":
                         # Door hinged on top side of the opening
-                        hinge_area = (door_x+door_width, room_depth - 50, 50, 50)  # Area behind top hinge
+                        hinge_area = (door_x+door_width, room_depth - door_width, door_width, door_width)  # Area behind top hinge
                     else:  # bottom hinge
                         # Door hinged on bottom side of the opening
-                        hinge_area = (door_x - 50, room_depth - 50, 50, 50)  # Area behind bottom hinge
+                        hinge_area = (door_x - door_width, room_depth - door_width, door_width, door_width)  # Area behind bottom hinge
                 
                 # If we have a valid hinge area and the new object is a sink, check for overlap
-                if hinge_area and new_obj_is_sink:
-                    if check_overlap(new_rect[0:4], hinge_area):
-                        return False
+    if hinge_area and  (object_type == "sink" or object_type == "double sink"):
+
+        if check_overlap(new_rect[0:4], hinge_area):
+                        
+            return False
                 
                 # # Check existing sinks against the new door's hinge area
                 # if not new_obj_is_sink and 'door' in new_rect[5].lower():
@@ -532,7 +528,7 @@ def check_valid_room(placed_obj):
     """Check if the room is valid."""
     for obj in placed_obj:
         name = obj[5]
-        if name == "sink" or name == "Sink" or name == "double_sink" or name =="Double Sink":
+        if name == "sink" or name == "Sink" or name == "double sink" or name =="Double Sink":
             return True
     print("No sink in the room")
     return False
@@ -546,12 +542,18 @@ def sort_objects_by_size(object_list, OBJECT_TYPES):
         elif "sink" in object_list[1] or "Sink" in object_list[1]:
             return object_list[::-1]
     else:
-        return sorted(object_list, key=lambda obj: OBJECT_TYPES[obj]["size_range"][1] * OBJECT_TYPES[obj]["size_range"][3], reverse=True)
+        objects_list_priority = ["bathtub", "shower", "asymmetrical bathtub", "double sink", "sink", "toilet", "toilet bidet","washing machine", "washing dryer",  "cabinet", "washing machine dryer"]
+        # sort object_list by priority
+        object_list.sort(key=lambda obj: objects_list_priority.index(obj) if obj in objects_list_priority else len(objects_list_priority), reverse=False)
+        print(object_list)
+        return object_list
 
 def generate_random_size(object_type):
     """Generates a random size within the allowed range for an object."""
     min_w, max_w, min_d, max_d,min_h, max_h = object_type["size_range"]
-    return random.randint(min_w, max_w), random.randint(min_d, max_d),random.randint(min_h, max_h)
+    optimal_size = object_type["optimal_size"]
+    opt_width, opt_depth, opt_height = optimal_size
+    return random.randint(min_w, opt_width), random.randint(min_d, opt_depth),random.randint(min_h, opt_height)
 
 def windows_doors_overlap(windows_doors, x, y, z,width, depth,  room_width, room_depth, shadow_space):
     new_rect = (x, y, width, depth)
@@ -653,7 +655,10 @@ def check_distance (conv_rect1,conv_rect2):
         dist = y1 - (y2 + depth2+shadow)
         smaller = False
     return dist, smaller
-
+def check_euclidean_distance(rect1, rect2):
+    x1, y1, width1, depth1 = rect1
+    x2, y2, width2, depth2 = rect2
+    return math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
 
 def adjust_object_placement(conv_rect,  room_width, room_depth, rect_wall, dist):
     """Adjusts object placement based on remaining space from walls."""
@@ -855,8 +860,10 @@ def calculate_space_before_object(obj, placed_objects, room_size):
     return free_space
 
 def get_nearest_parallel_wall(door, room_width, room_depth):
+    print(door)
     if door[1] == "top" or door[1] == "bottom":
-        door_y = door[2]
+
+        door_y = door[3]
         if door_y < room_depth/2:
             return "left"
         else:

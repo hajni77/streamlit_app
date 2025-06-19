@@ -58,8 +58,8 @@
       "must_be_against_wall": true,
       "priority": 3
     },
-    "toilet_bidet": {
-      "name": "Toilet and Bidet",
+    "toilet bidet": {
+      "name": "Toilet Bidet",
       "must_be_corner": false,
       "shadow_space": [60,30,30,0],
       "size_range": [75, 140, 60, 70, 40, 50],
@@ -76,7 +76,7 @@
       "must_be_against_wall": true,
       "priority": 1
     },
-    "double_sink": {
+    "double sink": {
       "name": "Double Sink",
       "must_be_corner": false,
       "shadow_space": [60,0,0,0],
@@ -103,7 +103,7 @@
       "must_be_against_wall": true,
       "priority": 2
     },
-    "symmetrical_bathtub": {
+    "symmetrical bathtub": {
       "name": "Symmetrical Bathtub",
       "must_be_corner": true,
       "shadow_space": [0,0,0,0],
@@ -112,7 +112,7 @@
       "must_be_against_wall": true,
       "priority": 2
     },
-    "asymmetrical_bathtub": {
+    "asymmetrical bathtub": {
       "name": "Asymmetrical Bathtub",
       "must_be_corner": true,
       "shadow_space": [0,0,0,0],
@@ -121,29 +121,29 @@
       "must_be_against_wall": true,
       "priority": 2
     },
-    "washing_machine": {
+    "washing machine": {
       "name": "Washing Machine",
       "must_be_corner": false,
       "shadow_space": [60,0,0,0],
-      "size_range": [60, 70, 45, 60, 80, 80],
+      "size_range": [60, 70, 45, 60, 80, 90],
       "optimal_size": [60, 60, 90],
       "must_be_against_wall": true,
       "priority": 3
     },
-    "dryer": {
+    "washing dryer": {
       "name": "Washing Dryer",
       "must_be_corner": false,
       "shadow_space": [60,0,0,0],
-      "size_range": [60, 70, 45, 60, 80, 80],
+      "size_range": [60, 70, 45, 60, 80, 90],
       "optimal_size": [60, 60, 90],
       "must_be_against_wall": true,
       "priority": 3
     },
-    "washing_machine_dryer": {
+    "washing machine dryer": {
       "name": "Washing Machine and Dryer",
       "must_be_corner": false,
       "shadow_space": [0,0,0,0],
-      "size_range": [60, 70, 45, 60, 160, 160],
+      "size_range": [60, 70, 45, 60, 180, 180],
       "optimal_size": [60, 60, 180],
       "must_be_against_wall": true,
       "priority": 3

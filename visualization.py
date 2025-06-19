@@ -20,6 +20,9 @@ object_colors = {
     "Cabinet": "pink",
     "Washing Dryer": "orange",
     "Washing Machine and Dryer": "orange",
+    "Asymmetrical Bathtub": "purple",
+    "Toilet Bidet": "blue",
+
 }
 def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shadow=75):
     # Draw windows and doors
@@ -613,4 +616,121 @@ def visualize_pathway_accessibility(placed_objects, room_sizes, windows_doors, p
     return fig
 
 
+def visualize_opposite_walls_distance(placed_objects, room_sizes, violations=None, min_distance=60):
+    """
+    Visualize the distance between objects on opposite walls, highlighting violations.
+    
+    Args:
+        placed_objects: List of objects with their positions and dimensions
+        room_sizes: Tuple of (room_width, room_depth)
+        violations: List of violations as returned by check_opposite_walls_distance
+                   Each violation is (idx1, idx2, name1, name2, distance)
+        min_distance: Minimum required distance (default 60cm)
+        
+    Returns:
+        matplotlib figure showing the room layout with distance annotations
+    """
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    
+    room_width, room_depth = room_sizes
+    
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Draw room boundaries
+    ax.add_patch(patches.Rectangle((0, 0), room_width, room_depth, fill=False, edgecolor='black', linewidth=2))
+    
+    # Draw all objects
+    for i, obj in enumerate(placed_objects):
+        x, y, width, depth, _, name, wall_pos, corner_pos, _ = obj
+        label = f"{name} (#{i})"
+        
+        # Draw object
+        ax.add_patch(patches.Rectangle(
+            (y, x), width, depth,
+            fill=True, facecolor='lightgray', edgecolor='black',
+            linewidth=1, alpha=0.7
+        ))
+        
+        # Add label
+        ax.text(y + width/2, x + depth/2, label, ha='center', va='center', fontsize=8)
+    
+    # If no violations provided, calculate them
+    if violations is None:
+        from optimization import check_opposite_walls_distance
+        _, violations = check_opposite_walls_distance(placed_objects, room_sizes, min_distance)
+    
+    # Draw distance lines and annotations for violations
+    for left_idx, right_idx, left_name, right_name, distance in violations:
+        # Get the objects
+        left_obj = placed_objects[left_idx]
+        right_obj = placed_objects[right_idx]
+        
+        # Unpack coordinates
+        left_x, left_y, left_width, left_depth = left_obj[0], left_obj[1], left_obj[2], left_obj[3]
+        right_x, right_y, right_width, right_depth = right_obj[0], right_obj[1], right_obj[2], right_obj[3]
+        
+        # Determine if this is a left-right or top-bottom pair
+        is_horizontal = abs(left_x + left_depth - right_x) < abs(left_y + left_width - right_y)
+        
+        if is_horizontal:  # Left-right pair (horizontal violation)
+            # Find middle y-coordinate where both objects overlap
+            mid_y = max(left_y, right_y) + (min(left_y + left_width, right_y + right_width) - max(left_y, right_y)) / 2
+            
+            # Draw distance line
+            ax.plot(
+                [left_y + left_width, right_y],
+                [left_x + left_depth/2, right_x + right_depth/2],
+                'r--', linewidth=1.5
+            )
+            
+            # Add distance annotation
+            ax.text(
+                (left_y + left_width + right_y) / 2,
+                (left_x + left_depth/2 + right_x + right_depth/2) / 2,
+                f"{distance:.1f}cm",
+                color='red', fontweight='bold', ha='center', va='center',
+                bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.3')
+            )
+        else:  # Top-bottom pair (vertical violation)
+            # Find middle x-coordinate where both objects overlap
+            mid_x = max(left_x, right_x) + (min(left_x + left_depth, right_x + right_depth) - max(left_x, right_x)) / 2
+            
+            # Draw distance line
+            ax.plot(
+                [left_y + left_width/2, right_y + right_width/2],
+                [left_x + left_depth, right_x],
+                'r--', linewidth=1.5
+            )
+            
+            # Add distance annotation
+            ax.text(
+                (left_y + left_width/2 + right_y + right_width/2) / 2,
+                (left_x + left_depth + right_x) / 2,
+                f"{distance:.1f}cm",
+                color='red', fontweight='bold', ha='center', va='center',
+                bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.3')
+            )
+    
+    # Add legend for minimum distance requirement
+    legend_patch = patches.Patch(color='red', fill=False, hatch='///', label=f'Min Distance: {min_distance}cm')
+    ax.legend(handles=[legend_patch], loc='upper right')
+    
+    # Add title
+    if violations:
+        ax.set_title(f"Opposite Walls Distance Check: {len(violations)} violation(s)")
+    else:
+        ax.set_title("Opposite Walls Distance Check: No violations")
+    
+    # Set equal aspect ratio and invert y-axis to match room layout
+    ax.set_aspect('equal')
+    ax.set_xlabel('Width (cm)')
+    ax.set_ylabel('Depth (cm)')
+    
+    # Set limits
+    ax.set_xlim(0, room_width)
+    ax.set_ylim(room_depth, 0)  # Inverted y-axis
+    
+    return fig
 
