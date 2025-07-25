@@ -1,0 +1,1 @@
+# Constraints for object placement

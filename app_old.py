@@ -51,7 +51,7 @@ if access_token:
 common_fixtures = [
         "Toilet", "Sink", "Shower", "Bathtub", "Cabinet", 
         "Double Sink", "Washing Machine", "Washing Dryer",
-        "Washing Machine and Dryer", "Symmetrical Bathtub", "Asymmetrical Bathtub",
+        "Washing Machine Dryer", "Symmetrical Bathtub", "Asymmetrical Bathtub",
         "Toilet Bidet"
     ]
 st.session_state.common_fixtures = common_fixtures

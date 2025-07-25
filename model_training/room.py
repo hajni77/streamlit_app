@@ -136,16 +136,11 @@ class RoomEnvironment:
                 x1, y1, width1, depth1, height1, name1, must_corner1, must_wall1, shadow1 = obj1
                 x2, y2, width2, depth2, height2, name2, must_corner2, must_wall2, shadow2 = obj2
                 
-                # Get wall information
-                wall1 = check_which_wall((x1, y1, width1, depth1), room_width, room_depth)
-                wall2 = check_which_wall((x2, y2, width2, depth2), room_width, room_depth)
-                
-                # Convert rectangles for distance calculation
-                conv_rect1 = convert_values((x1, y1, width1, depth1), shadow1, wall1)
-                conv_rect2 = convert_values((x2, y2, width2, depth2), shadow2, wall2)
+                rect1 = (x1, y1, width1, depth1, height1)
+                rect2 = (x2, y2, width2, depth2, height2)
                 
                 # Calculate distance between objects
-                dist, smaller = check_distance(conv_rect1, conv_rect2)
+                dist, smaller = check_distance(rect1, rect2)
                 
                 # Penalize if objects are too close
                 if dist < min_clearance:

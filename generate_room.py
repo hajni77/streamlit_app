@@ -7,11 +7,12 @@ import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import random
-from optimization import optimize_object, optimization, maximize_object_sizes, fill_wall_with_cabinets, place_cabinets_against_walls
-from visualization import visualize_room_with_shadows_3d
-from utils import check_valid_room,check_distance_from_wall,is_corner_placement_sink, check_which_wall, check_distance, check_bathtub_shadow,adjust_object_placement_pos, convert_values, adjust_object_placement, is_valid_placement, get_available_walls, windows_doors_overlap, check_overlap, sort_objects_by_size, generate_random_size,  windows_doors_overlap, check_which_wall_for_door, get_walls_parallel_to_doors, OBJECT_TYPES
+from optimization_file import optimize_object, optimization, maximize_object_sizes, fill_wall_with_cabinets, place_cabinets_against_walls
+from visualization_file import visualize_room_with_shadows_3d
+from utils_file import check_valid_room,check_distance_from_wall,is_corner_placement_sink, check_which_wall, check_distance, check_bathtub_shadow,adjust_object_placement_pos, convert_values, adjust_object_placement, is_valid_placement, get_available_walls, windows_doors_overlap, check_overlap, sort_objects_by_size, generate_random_size,  windows_doors_overlap, check_which_wall_for_door, get_walls_parallel_to_doors, OBJECT_TYPES
+from validation import get_constraint_validator
 import numpy as np
-from utils import check_door_sink_placement
+from utils_file import check_door_sink_placement
 class ObjectType:
     """Defines the constraints for different object types."""
     def __init__(self, name, must_be_corner, shadow_space, size_range, must_be_against_wall):
@@ -27,7 +28,11 @@ room_height = 280
 
 
 
-def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,attempt = 1000 ):
+def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES, attempt=1000, validator=None):
+    door_wall = ""
+    for dor in windows_doors:
+        if "door" in dor[0].lower():
+            door_wall = dor[1]
     room_width, room_depth = bathroom_size
     placed_objects = []
     object_positions = []
@@ -143,7 +148,24 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
 
 
 
-            if is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth)  :
+            # Use the constraint validator if provided, otherwise fall back to legacy validation
+            if validator:
+                # Create a bathroom object representation for validation
+                from models.bathroom import Bathroom
+                bathroom = Bathroom(room_width, room_depth)
+                for wd in windows_doors:
+                    bathroom.add_window_door(wd)
+                # Create an object representation for validation
+                from models.object import BathroomObject
+                bathroom_obj = BathroomObject(obj_type,OBJECT_TYPES, obj_width, obj_depth, obj_height, shadow)
+                
+                # Validate placement using the constraint validator
+                is_valid = validator.validate_placement(bathroom_obj, (x, y), bathroom)
+            else:
+                # Legacy validation
+                is_valid = is_valid_placement((x, y, obj_width, obj_depth,obj_height), placed_objects, shadow, room_width, room_depth, door_wall)
+                
+            if is_valid:
                 if ("bathtub" or "asymmetrical bathtub") not in object_positions or check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
                     if (obj_type == "sink" or obj_type == "toilet"  or obj_type == "double sink") and not check_door_sink_placement((x, y, obj_width, obj_depth), placed_objects, windows_doors, room_width, room_depth, obj_type):
                         placed = False
@@ -152,7 +174,7 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
 
                     else:
                         placed = True
-                        x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions)
+                        x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions,door_wall)
                         object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
                         #fig = visualize_room_with_shadows_3d(bathroom_size, object_positions, windows_doors)
                         #st.pyplot(fig)
@@ -178,8 +200,8 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                 
                 #dist,rect_smaller = check_distance(conv_rect, conv_placed_obj)
      
-        if not placed and obj_type =="double sink":
-            obj_type = "sink"
+        if not placed :
+            
             obj_def = OBJECT_TYPES[obj_type]
             orig_obj_width, orig_obj_depth,orig_obj_height = generate_random_size(obj_def)
             if obj_type == "washing machine" or obj_type == "washing dryer":
@@ -243,7 +265,25 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                 z = obj_height
 
 
-                if is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth)  :
+                # Use the constraint validator if provided, otherwise fall back to legacy validation
+                if validator:
+                    # Create a bathroom object representation for validation
+                    from models.bathroom import Bathroom
+                    bathroom = Bathroom(room_width, room_depth)
+                    for wd in windows_doors:
+                        bathroom.add_window_door(wd)
+                    
+                    # Create an object representation for validation
+                    from models.object import BathroomObject
+                    bathroom_obj = BathroomObject(obj_type,OBJECT_TYPES, obj_width, obj_depth, obj_height, shadow)
+                    
+                    # Validate placement using the constraint validator
+                    is_valid = validator.validate_placement(bathroom_obj, (x, y), bathroom)
+                else:
+                    # Legacy validation
+                    is_valid = is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, door_wall)
+                    
+                if is_valid:
                     if ("bathtub" or "asymmetrical bathtub") not in object_positions or check_bathtub_shadow((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth, object_positions, obj_type):
                         if (obj_type == "sink"  or obj_type == "toilet"   or obj_type == "double sink") and not check_door_sink_placement((x, y, obj_width, obj_depth), placed_objects, windows_doors, room_width, room_depth, obj_type):
                             placed = False
@@ -252,7 +292,7 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
 
                         else :
                             placed = True
-                            x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions )
+                            x,y,obj_width,obj_depth = optimize_object((x, y, obj_width, obj_depth), shadow, room_width, room_depth,object_positions,door_wall)
                             # x, y, obj_width, obj_depth = adjust_object_placement((x, y, obj_width, obj_depth),shadow, room_width, room_depth, placed_objects,min_space=30)
                             object_positions.append((x, y, obj_width, obj_depth, obj_height, obj_def['name'], obj_def['must_be_corner'], obj_def['must_be_against_wall'], shadow))
                             #fig = visualize_room_with_shadows_3d(bathroom_size, object_positions, windows_doors)
@@ -278,7 +318,7 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                     
 
             if not placed:
-                object_positions = optimization(object_positions, bathroom_size)
+                object_positions = optimization(object_positions, bathroom_size, windows_doors)
                 # try to get the last three objects, and resize the objects
                 
                 # last_object = placed_objects[-1]
@@ -290,7 +330,7 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
                 # placed_objects[-1] = (x,y,width,depth, last_object[4], last_object[5], last_object[6], last_object[7], last_object[8])
                 print(f"Could not place object {obj_type} due to space limitations.")
         
-    object_positions = optimization(object_positions, bathroom_size)
+    object_positions = optimization(object_positions, bathroom_size, windows_doors)
     print("Optimization done")
     object_positions = maximize_object_sizes(object_positions, bathroom_size, OBJECT_TYPES)
     print("Maximization done")
@@ -301,5 +341,3 @@ def fit_objects_in_room(bathroom_size, object_list, windows_doors, OBJECT_TYPES,
 
 
 
-# TODO : optimize 
-# TODO: WC not placed opposite to the door

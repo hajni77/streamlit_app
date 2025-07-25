@@ -5,7 +5,7 @@ from matplotlib.widgets import Button
 import numpy as np
 from mpl_toolkits.mplot3d import axes3d 
 import matplotlib.patches as patches
-from utils import check_which_wall,check_distance,adjust_object_placement, check_distance_from_wall, convert_values, adjust_object_placement_pos, is_valid_placement
+from utils_file import check_which_wall,check_distance,adjust_object_placement, check_distance_from_wall, convert_values, adjust_object_placement_pos, is_valid_placement
 # Initialize global variables for view angle adjustment
 current_elev = 30
 current_azim = 30
@@ -19,12 +19,16 @@ object_colors = {
     "Double Sink": "brown",
     "Cabinet": "pink",
     "Washing Dryer": "orange",
-    "Washing Machine and Dryer": "orange",
+    "Washing Machine Dryer": "orange",
     "Asymmetrical Bathtub": "purple",
     "Toilet Bidet": "blue",
 
 }
-def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shadow=75):
+def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shadow=75, door_wall="left"):
+    # Ensure all parameters are of the correct type
+    door_shadow = int(door_shadow) if not isinstance(door_shadow, int) else door_shadow
+    room_width = int(room_width) if not isinstance(room_width, int) else room_width
+    room_depth = int(room_depth) if not isinstance(room_depth, int) else room_depth
     # Draw windows and doors
     for item in windows_doors:
         id_, wall, x, y,  width,height, parapet, way, hinge = item
@@ -69,18 +73,18 @@ def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shado
                 [room_width, y + width, parapet],
                 [room_width, y + width, parapet + height],
                 [room_width, y, parapet + height],
-                    [room_width - door_shadow, y, parapet],                 # Bottom-left
-                    [room_width - door_shadow, y + width, parapet],         # Top-left
-                    [room_width - door_shadow, y + width, parapet + height], # Top-right
-                    [room_width - door_shadow, y, parapet + height]           # Bottom-right
+                [room_width - door_shadow, y, parapet],                 # Bottom-left
+                [room_width - door_shadow, y + width, parapet],         # Top-left
+                [room_width - door_shadow, y + width, parapet + height], # Top-right
+                [room_width - door_shadow, y, parapet + height]           # Bottom-right
                 ]
         
         elif wall == "right":
             vertices = [
-                    [x, room_depth,parapet],  # Top-left corner
-                    [x + width, room_depth, parapet],  # Top-right corner
-                    [x + width, room_depth , parapet+height],  # Bottom-right corner
-                    [x, room_depth,parapet+height]  # Bottom-left corner
+                [x, room_depth,parapet],  # Top-left corner
+                [x + width, room_depth, parapet],  # Top-right corner
+                [x + width, room_depth , parapet+height],  # Bottom-right corner
+                [x, room_depth,parapet+height]  # Bottom-left corner
                 ]
                 
                 # 3D Shadow as a box on the floor
@@ -142,14 +146,14 @@ def visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shado
         ax.text(cx, cy, cz + 10, id_, color='black', ha='center', va='center')
 
 # visuaize placed objects
-def visualize_placed_objects(placed_objects, room_width, room_depth, ax):
+def visualize_placed_objects(placed_objects, room_width, room_depth, ax, door_shadow, door_wall):
     for x, y,  w, d, h, name, must_be_corner, must_be_wall, shadow in placed_objects:
         z = 0 # currently all objects are on the floor
 
         top, left,right,bottom = shadow
 
         
-        conv_x , conv_y, conv_w, conv_d,  conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x, y, w, d), shadow, check_which_wall((x, y, w, d), room_width, room_depth))
+        conv_x , conv_y, conv_w, conv_d,  conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x, y, w, d), shadow, check_which_wall((x, y, w, d), room_width, room_depth),door_wall)
         
         shadow_x = conv_x - conv_shadow_top
         shadow_y = conv_y - conv_shadow_left
@@ -202,36 +206,60 @@ def visualize_placed_objects(placed_objects, room_width, room_depth, ax):
 
 
 def visualize_room_with_shadows_3d(bathroom_size, placed_objects, windows_doors):
+    """Create a 3D visualization of the bathroom layout.
+    
+    Args:
+        bathroom_size: Tuple of (width, depth) of the bathroom
+        placed_objects: List of objects placed in the bathroom
+        windows_doors: List of windows and doors in the bathroom
+        
+    Returns:
+        matplotlib.figure.Figure: A 3D figure that can be displayed and saved
+    """
     room_width, room_depth = bathroom_size
     room_height = 280  # Fixed height for 3D visualization
-    
-    # Interactive mode for adjustable viewing angles
+    door_wall = ""
+    door_shadow = 75
+    for door in windows_doors:
+        if "door" in door[0].lower():
+            door_wall = door[1]
+            
+        door_shadow = door[4]
+            
+
     plt.ion()
     # Create 3D figure - smaller size
-    fig = plt.figure(figsize=(6, 6))
+    fig = plt.figure(figsize=(6, 6), dpi=100)
     ax = fig.add_subplot(111, projection='3d')
-    ax.set_box_aspect([room_width, room_depth, room_height])  # Aspect ratio
     
-    # Room boundaries
-    ax.set_xlim(0, room_width)
-    ax.set_ylim(0, room_depth)
-    ax.set_zlim(0, room_height)
+    # Use numpy arrays for aspect ratio to ensure proper data types
+    ax.set_box_aspect(np.array([float(room_width), float(room_depth), float(room_height)]))  # Aspect ratio
+    
+    # Room boundaries - use float values
+    ax.set_xlim(0.0, float(room_width))
+    ax.set_ylim(0.0, float(room_depth))
+    ax.set_zlim(0.0, float(room_height))
     ax.set_xlabel('Width (X)')
     ax.set_ylabel('Depth (Y)')
     ax.set_zlabel('Height (Z)')
     ax.set_title('3D Room Layout')
-    # show color-name mapping for objects from top to bottom
+    
+    # Show color-name mapping for objects from top to bottom
     for i, (name, color) in enumerate(object_colors.items()):
-        ax.text(room_width + 1, room_depth - i*30, room_height, f"{name}: {color}", color=color, fontsize
-                =10)
-    visualize_door_windows(windows_doors, room_width, room_depth, ax)
-    visualize_placed_objects(placed_objects, room_width, room_depth, ax) 
+        ax.text(float(room_width) + 1.0, float(room_depth) - i*30.0, float(room_height), 
+                f"{name}: {color}", color=color, fontsize=10)
+                
+    # Visualize doors, windows and objects
+    visualize_door_windows(windows_doors, room_width, room_depth, ax, door_shadow, door_wall)
+    visualize_placed_objects(placed_objects, room_width, room_depth, ax,door_shadow, door_wall) 
      
- # Initial view angle
-    ax.view_init(elev=current_elev, azim=current_azim)
+    # Initial view angle
+    ax.view_init(elev=float(current_elev), azim=float(current_azim))
+    # fig.canvas.draw()
+    # fig.tight_layout()
+    # plt.ioff()
 
     
-    # plt.show()
     return fig
 
 
@@ -262,7 +290,7 @@ def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
         shadow = door_width
         alpha = 0.3
         name = "Outward Door"
-        if indoor == "Inward":
+        if way == "Inward":
             alpha = 0.9
             name = "Inward Door"
         # draw line in place of door
@@ -293,7 +321,7 @@ def draw_2d_floorplan(bathroom_size,  objects, doors, indoor):
     # Draw objects
     for obj in objects:
         x,y, width, depth, height, name, must_be_corner, must_be_against_wall, shadow = obj
-        conv_x , conv_y, conv_w, conv_d,  conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x, y, width, depth), shadow, check_which_wall((x, y, width, depth), room_width, room_depth))
+        conv_x , conv_y, conv_w, conv_d,  conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x, y, width, depth), shadow, check_which_wall((x, y, width, depth), room_width, room_depth), selected_door_type)
         shadow_x = conv_x - conv_shadow_top
         shadow_y = conv_y - conv_shadow_left
         shadow_w = conv_w + conv_shadow_left + conv_shadow_right

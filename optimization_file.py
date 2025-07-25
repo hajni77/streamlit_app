@@ -1,14 +1,14 @@
-from utils import check_which_wall,check_distance,adjust_object_placement, check_distance_from_wall, convert_values, adjust_object_placement_pos, is_valid_placement, convert_shadows
+from utils_file import check_which_wall,check_distance,adjust_object_placement, check_distance_from_wall, convert_values, adjust_object_placement_pos, is_valid_placement, convert_shadows
 import streamlit as st
-from utils import is_corner_placement_sink, get_object_type, is_valid_placement_without_converting, get_opposite_wall, check_overlap
-from utils import OBJECT_TYPES, get_nearest_parallel_wall
+from utils_file import is_corner_placement_sink, get_object_type, is_valid_placement_without_converting, get_opposite_wall, check_overlap
+from utils_file import OBJECT_TYPES, get_nearest_parallel_wall
 import numpy as np
 import math
-from visualization import visualize_pathway_accessibility
-from utils import calculate_space_before_object
+from visualization_file import visualize_pathway_accessibility
+from utils_file import calculate_space_before_object
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from utils import windows_doors_overlap, check_euclidean_distance
+from utils_file import windows_doors_overlap, check_euclidean_distance
 
 def check_pathway_accessibility(placed_objects, room_sizes, windows_doors, path_width=60):
     """
@@ -190,7 +190,6 @@ def check_pathway_accessibility(placed_objects, room_sizes, windows_doors, path_
             door_type = door[1]  # wall type (top, bottom, left, right)
             door_x, door_y = door[2], door[3]  # position
             door_width = door[4]  # width
-            print(f"Door: {door}")
             
             # Calculate the center of the door
             if door_type in ["top", "bottom"]:
@@ -263,7 +262,6 @@ def check_pathway_accessibility(placed_objects, room_sizes, windows_doors, path_
             for point_x, point_y in perimeter_points:
                 path_exists, path_coords = has_clear_path(door_grid_x, door_grid_y, point_x, point_y)
                 if path_exists:
-                    print(path_coords)
                     # Store the actual path found by BFS
                     accessible_paths.append(path_coords)
                     
@@ -303,7 +301,9 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
         float: Overall score for the layout (0-100)
         dict: Detailed scores for each criterion
     """
-
+    door_wall = ""
+    for dor in windows_doors:
+        door_wall = dor[1]
     room_width, room_depth = room_sizes
     total_score = 0
     scores = {}
@@ -417,7 +417,7 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
     scores["corner_coverage"] = corner_coverage_score
     total_score += scores["corner_coverage"]
     # 5. Door Position Constraints (10 points) 
-    door_sink_score = 0
+    door_sink_score = 10
     sink_score = 0
     sink_symmetrial_door_score = 0
     door_sink_distance_score = 0
@@ -430,12 +430,12 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
                 door_x, door_y, door_width, door_depth = door[2], door[3], door[4], door[5]
                 obj_wall = check_which_wall((x,y,width,depth), room_width, room_depth)
                 opposite_wall = get_opposite_wall(door_wall)
-                if (name == "Sink" or name == "Double Sink") and obj_wall == opposite_wall:
+                if (name == "Sink" or name == "Double Sink" or name in ["sink", "double sink"]) and obj_wall == opposite_wall:
                     sink_score += 10  # Reward sink opposite door
                     if (door_x <= x+depth and door_x + door_width  >= x and door_x - 20 <= x and door_x+door_width+20 >= x+ depth ) or (door_y <= y+width and door_y + door_width >= y and door_y - 20 <= y and door_y+door_width+20 >= y+ width ):
                         sink_symmetrial_door_score += 10 
                 
-                elif (name == "Sink" or name == "Double Sink") and door_wall != obj_wall:
+                elif (name == "Sink" or name == "Double Sink" or name in ["sink", "double sink"]) and door_wall != obj_wall:
                     door_sink_score += 5  # Reward sink opposite door
                     if(check_euclidean_distance((door_x, door_y, door_width, door_depth), (x, y, width, depth)) < 200):
                         door_sink_distance_score += 10  # Reward sink opposite door
@@ -443,7 +443,7 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
                 elif name in ["Toilet", "Toilet Bidet"] and get_opposite_wall(door_wall) != obj_wall:
                     door_sink_score += 5  # Reward toilet not opposite door
                     if(door_x <= x+depth and door_x + door_width  >= x and door_x - 40 <= x and door_x+door_width+40 >= x+ depth ) or (door_y <= y+width and door_y + door_width >= y and door_y - 40 <= y and door_y+door_width+40 >= y+ width ):
-                        toilet_to_door_score =0
+                        toilet_to_door_score = 0
                         
                 elif name in ["Toilet", "Toilet Bidet"] and door_wall == obj_wall:
                     door_sink_score += 5  # Reward toilet SAME door - WE WANT TO HIDE
@@ -529,7 +529,7 @@ def evaluate_room_layout(placed_objects, room_sizes, object_types_dict, windows_
     for obj in placed_objects:
         x, y, width, depth, height, name, _, _, shadow = obj
         shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
-        conv_obj = convert_values((x,y,width,depth), shadow, check_which_wall((x,y,width,depth), room_width, room_depth))
+        conv_obj = convert_values((x,y,width,depth), shadow, check_which_wall((x,y,width,depth), room_width, room_depth), door_wall)
         x, y, width, depth, shadow_top, shadow_left, shadow_right, shadow_bottom = conv_obj
         
         # Check if shadow overlaps with room boundaries
@@ -750,9 +750,9 @@ def check_opposite_walls_distance(placed_objects, room_sizes, min_distance=60):
                 distance = right_y - (left_y + left_width)
                 if distance < min_distance:
                     violations.append((left_idx, right_idx, left_name, right_name, distance))
-                    print(f"Opposite walls distance violations:                   ")
-                    for left_idx, right_idx, left_name, right_name, distance in violations:
-                        print(f"  - {left_name}(#{left_idx}) <-> {right_name}(#{right_idx}): {distance:.1f}cm (below 60cm minimum)")
+                    # print(f"Opposite walls distance violations:                   ")
+                    # for left_idx, right_idx, left_name, right_name, distance in violations:
+                    #     print(f"  - {left_name}(#{left_idx}) <-> {right_name}(#{right_idx}): {distance:.1f}cm (below 60cm minimum)")
     
     # Top vs Bottom wall
     for top_idx, top_obj in wall_objects[WALL_TOP]:
@@ -887,7 +887,7 @@ def analyze_pathway_accessibility( placed_objects, room_sizes, windows_doors, pa
     
     return  fig
 
-def optimize_sink_corner(placed_obj, room_sizes):
+def optimize_sink_corner(placed_obj, room_sizes, windows_doors):
     """
     Optimize sink placement by moving it from corners or switching with other objects.
     
@@ -898,6 +898,10 @@ def optimize_sink_corner(placed_obj, room_sizes):
     Returns:
         list: Updated list of placed objects
     """
+    door_wall = ""
+    for dor in windows_doors:
+        if "door" in dor[0].lower():
+            door_wall = dor[1]
     room_width, room_depth = room_sizes
     
     for i, obj in enumerate(placed_obj):
@@ -931,7 +935,7 @@ def optimize_sink_corner(placed_obj, room_sizes):
                             
                             # Check if placement is valid
                             other_positions = [(item[0], item[1], item[2], item[3], item[-1]) for item in placed_obj]
-                            if is_valid_placement((space_x, space_y, width, depth), other_positions, shadow, room_width, room_depth):
+                            if is_valid_placement((space_x, space_y, width, depth), other_positions, shadow, room_width, room_depth, door_wall):
                                 # Update the sink position
                                 del placed_obj[i]
                                 placed_obj.insert(i, new_sink)
@@ -939,7 +943,10 @@ def optimize_sink_corner(placed_obj, room_sizes):
     
     return placed_obj
 
-def optimization(placed_obj, room_sizes):
+def optimization(placed_obj, room_sizes, windows_doors):
+    door_wall = ""
+    for dor in windows_doors:
+        door_wall = dor[1]
     room_width, room_depth = room_sizes
     print("optimization")
 
@@ -967,13 +974,13 @@ def optimization(placed_obj, room_sizes):
             if min_dist < 30 and _1 != "Sink":
 
                 # convert values
-                conv_x,conv_y,conv_width,conv_depth, conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x,y,width,depth), shadow, wall)
+                conv_x,conv_y,conv_width,conv_depth, conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x,y,width,depth), shadow, wall, door_wall)
                 # adjust object placement
                 new_x,new_y = adjust_object_placement_pos((conv_x,conv_y,conv_width,conv_depth), (conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom), room_width, room_depth, wall_side)
                 # Create a new list excluding the current object
                 other_positions = extracted_positions[:i] + extracted_positions[i+1:]
                 
-                if is_valid_placement((new_x,new_y,width,depth), other_positions, shadow, room_width, room_depth):
+                if is_valid_placement((new_x,new_y,width,depth), other_positions, shadow, room_width, room_depth, door_wall):
                     # update placed objects
                     del placed_obj[i]
 
@@ -983,21 +990,19 @@ def optimization(placed_obj, room_sizes):
     return placed_obj
         
 # optimize only one object  
-def optimize_object(rect, shadow, room_width, room_depth, placed_obj):
+def optimize_object(rect, shadow, room_width, room_depth, placed_obj, door_wall):
     rect_wall = check_which_wall(rect, room_width, room_depth)
     x_rect, y_rect, width_rect, depth_rect = rect
     rect_top, rect_left, rect_right, rect_bottom = shadow
     
-    conv_rect = convert_values(rect, shadow, rect_wall)
+    conv_rect = convert_values(rect, shadow, rect_wall, door_wall)
     for i,obj in enumerate(placed_obj):
         x,y,width,depth,height, _1,_2,_3,shadow = obj
         shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
         wall = check_which_wall((x,y,width,depth), room_width, room_depth)
-        conv_placed_obj = convert_values((x,y,width,depth), shadow, wall)
+        conv_placed_obj = convert_values((x,y,width,depth), shadow, wall, door_wall)
         # if rect wall and wall contains the same wall  name
         if rect_wall in wall or wall in rect_wall:
-            print("optimize_object")
-            print(rect_wall,wall)
             # check the distance of the objects from each other
             dist,rect_smaller = check_distance(conv_rect, conv_placed_obj)
             if dist < 50 and dist > 0:
@@ -1009,7 +1014,7 @@ def optimize_object(rect, shadow, room_width, room_depth, placed_obj):
                 # Create a new list 
                 extracted_positions = [(item[0], item[1], item[2], item[3], item[-1]) for item in placed_obj]
                 
-                if is_valid_placement((new_x,new_y,width_rect,depth_rect),extracted_positions, (rect_top, rect_left, rect_right, rect_bottom), room_width, room_depth):
+                if is_valid_placement((new_x,new_y,width_rect,depth_rect),extracted_positions, (rect_top, rect_left, rect_right, rect_bottom), room_width, room_depth, door_wall):
                     # update placed objects
                     x_rect = new_x
                     y_rect = new_y
@@ -1209,6 +1214,9 @@ def identify_available_space(placed_obj, room_sizes, grid_size=1, windows_doors=
     Returns:
         dict: {'with_shadow': [...], 'without_shadow': [...]} available spaces as (x, y, width, depth) tuples.
     """
+    door_wall = ""
+    for dor in windows_doors:
+        door_wall = dor[1]
     def _find_spaces(include_shadows):
         room_width, room_depth = room_sizes
         grid_width = room_width // grid_size 
@@ -1217,7 +1225,7 @@ def identify_available_space(placed_obj, room_sizes, grid_size=1, windows_doors=
         # Mark occupied spaces
         for obj in placed_obj:
             x, y, width, depth, height, _1, _2, _3, shadow = obj
-            x, y, width, depth, shadow_top, shadow_left, shadow_right, shadow_bottom = convert_values((x,y,width,depth), shadow, check_which_wall((x,y,width,depth), room_width, room_depth))
+            x, y, width, depth, shadow_top, shadow_left, shadow_right, shadow_bottom = convert_values((x,y,width,depth), shadow, check_which_wall((x,y,width,depth), room_width, room_depth), door_wall)
             if include_shadows:
                 start_x = max(0, (x - shadow_top) // grid_size)
                 start_y = max(0, (y - shadow_left) // grid_size)
@@ -1421,7 +1429,7 @@ def find_best_space_for_size(available_spaces, width, depth, min_width=None, min
     
     return best_space
 
-def add_objects_to_available_spaces(placed_objects, room_sizes, object_types_dict, priority_objects=None, available_spaces=None):
+def add_objects_to_available_spaces(placed_objects, room_sizes, object_types_dict, priority_objects=None, available_spaces=None, windows_doors=[]):
     """
     Identifies available spaces and automatically adds new objects that fit in those spaces.
     
@@ -1438,6 +1446,9 @@ def add_objects_to_available_spaces(placed_objects, room_sizes, object_types_dic
             - updated_objects: List of all objects including newly added ones
             - added_objects: List of only the newly added objects
     """
+    door_wall = ""
+    for dor in windows_doors:
+        door_wall = dor[1]
     room_width, room_depth = room_sizes
     
     if not available_spaces:
@@ -1525,7 +1536,7 @@ def add_objects_to_available_spaces(placed_objects, room_sizes, object_types_dic
                     x, y, width, depth = placement
                     # convert values
                     wall = check_which_wall((x,y,width,depth), room_width, room_depth)
-                    conv_x,conv_y,conv_width,conv_depth, conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x,y,width,depth), shadow, wall)
+                    conv_x,conv_y,conv_width,conv_depth, conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x,y,width,depth), shadow, wall, door_wall)
                     # Determine which corner and adjust accordingly
                     if conv_x == 0 and conv_y == 0:  # Top-left corner
                         pass  # Already in corner
@@ -1599,7 +1610,7 @@ def add_objects_to_available_spaces(placed_objects, room_sizes, object_types_dic
             # Check if placement is valid considering all objects
             if is_valid_placement((x, y, width, depth), 
                                  [(o[0], o[1], o[2], o[3], o[8]) for o in updated_objects], 
-                                 shadow, room_sizes[0], room_sizes[1]):
+                                 shadow, room_sizes[0], room_sizes[1], door_wall):
                 
                 # Add to our lists
                 updated_objects.append(new_object)
@@ -1633,7 +1644,7 @@ def suggest_additional_fixtures(placed_objects, room_sizes, object_types_dict, a
     placed_object_types = [obj[5] for obj in placed_objects]
     common_fixtures = [
         "Toilet", "Sink", "Shower", "Bathtub", "Cabinet", 
-        "Double Sink", "Washing Machine", "Washing Dryer", "Washing Machine and Dryer", "Symmetrical Bathtub", "Asymmetrical Bathtub", "Toilet Bidet"
+        "Double Sink", "Washing Machine", "Washing Dryer", "Washing Machine Dryer", "Symmetrical Bathtub", "Asymmetrical Bathtub", "Toilet Bidet"
     ]
     room_width, room_depth = room_sizes
     object_names = [value["name"] for value in object_types_dict.values()]
@@ -1822,7 +1833,11 @@ def maximize_object_sizes(positions, room_sizes, object_types_dict, increment=5)
 
     return updated_objects
 
-def switch_objects(positions, object_types_dict, room_sizes, selected_obj_idx, new_object_name):
+def switch_objects(positions, object_types_dict, room_sizes, selected_obj_idx, new_object_name, windows_doors):
+    door_wall = ""
+    for dor in windows_doors:
+        if "door" in dor[0].lower():
+            door_wall = dor[1]
     if selected_obj_idx < 0 or selected_obj_idx >= len(positions):
         return positions, False, "Invalid selected object index."
     old_obj = positions[selected_obj_idx]
@@ -1844,7 +1859,7 @@ def switch_objects(positions, object_types_dict, room_sizes, selected_obj_idx, n
     room_width, room_depth = room_sizes
     # Exclude the old object from placements
     placed_rects = [(p[0], p[1], p[2], p[3], p[8]) for i, p in enumerate(positions) if i != selected_obj_idx]
-    if is_valid_placement((x, y, width, depth), placed_rects, shadow, room_width, room_depth):
+    if is_valid_placement((x, y, width, depth), placed_rects, shadow, room_width, room_depth, door_wall):
         # Place new object at the same spot
         new_obj = (x, y, width, depth, height, new_object_name, must_be_corner, must_be_against_wall, shadow)
         new_positions = positions[:selected_obj_idx] + [new_obj] + positions[selected_obj_idx+1:]
@@ -1852,7 +1867,7 @@ def switch_objects(positions, object_types_dict, room_sizes, selected_obj_idx, n
     # If not, try to place it anywhere else in the room
     for i in range(0, int(room_width-width)+1, 5):
         for j in range(0, int(room_depth-depth)+1, 5):
-            if is_valid_placement((i, j, width, depth), placed_rects, shadow, room_width, room_depth):
+            if is_valid_placement((i, j, width, depth), placed_rects, shadow, room_width, room_depth, door_wall):
                 new_obj = (i, j, width, depth, height, new_object_name, must_be_corner, must_be_against_wall, shadow)
                 new_positions = positions[:selected_obj_idx] + [new_obj] + positions[selected_obj_idx+1:]
                 return new_positions, True, f"Switched to {new_object_name} at new position ({i},{j})."
@@ -2131,7 +2146,7 @@ def rects_overlap(rect1, rect2):
     return not (x2 <= x3 or x1 >= x4 or y2 <= y3 or y1 >= y4)
 
 
-def place_cabinets_against_walls(object_positions, room_size, doors, min_cabinet_width=30, min_cabinet_depth=30, max_cabinet_width=100, max_cabinet_depth=40):
+def place_cabinets_against_walls(object_positions, room_size, doors, min_cabinet_width=30, min_cabinet_depth=30, max_cabinet_width=100, max_cabinet_depth=40, windows_doors=[]):
     """
     Fill the room with cabinets against walls while avoiding overlaps with existing objects, shadows, and doors.
     
@@ -2147,6 +2162,9 @@ def place_cabinets_against_walls(object_positions, room_size, doors, min_cabinet
     Returns:
         Updated object_positions with added cabinets
     """
+    door_wall = ""
+    for dor in doors:
+        door_wall = dor[1]
     room_width, room_depth = room_size
     cabinet_def = OBJECT_TYPES.get("cabinet", {
         "name": "Cabinet",
@@ -2165,7 +2183,7 @@ def place_cabinets_against_walls(object_positions, room_size, doors, min_cabinet
     for obj in object_positions:
         x, y, width, depth, height, name, _, _, shadow = obj
         # Expand the object's footprint by its shadow space
-        conv_x,conv_y,conv_width,conv_depth, conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x,y,width,depth), shadow, check_which_wall((x,y,width,depth), room_width, room_depth)) 
+        conv_x,conv_y,conv_width,conv_depth, conv_shadow_top, conv_shadow_left, conv_shadow_right, conv_shadow_bottom = convert_values((x,y,width,depth), shadow, check_which_wall((x,y,width,depth), room_width, room_depth), door_wall) 
 
         x1 = max(0, int(conv_x - conv_shadow_left))
         y1 = max(0, int(conv_y - conv_shadow_top))

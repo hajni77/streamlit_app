@@ -307,46 +307,29 @@ class LayoutPreferenceModel:
         Returns:
             bool: True if successful, False otherwise
         """
-        try:
-            # First check if the bucket exists
-            try:
-                buckets = supabase_client.storage.list_buckets()
-                bucket_exists = False
-                for bucket in buckets:
-                    if bucket['name'] == 'models':
-                        bucket_exists = True
-                        break
-                        
-                if not bucket_exists:
-                    print("'models' bucket doesn't exist in Supabase storage")
-                    return False
-            except Exception as e:
-                print(f"Warning: Bucket check failed: {e}")
-                # Continue anyway, the download might still work
+
                 
             # Try to get a signed URL for the file (works better with RLS)
-            try:
+        try:
                 # Get public URL
                 file_url = supabase_client.storage.from_('models').get_public_url('layout_preference_model.pkl')
                 print(f"Model file URL: {file_url}")
-            except Exception as e:
+        except Exception as e:
                 print(f"Note: Could not get public URL: {e}")
                 # Continue with direct download attempt
             
-            # Download from Supabase storage
-            response = supabase_client.storage.from_('models').download('layout_preference_model.pkl')
+        # Download from Supabase storage
+        response = supabase_client.storage.from_('models').download('layout_preference_model.pkl')
             
-            # Deserialize model
-            data = pickle.loads(response)
-            self.model = data['model']
-            self.scaler = data['scaler']
-            self.feature_names = data['feature_names']
-            self.training_data = data['training_data']
-            print("Successfully loaded model from Supabase storage")
-            return True
-        except Exception as e:
-            print(f"Error loading model from Supabase: {e}")
-            return False
+        # Deserialize model
+        data = pickle.loads(response)
+        self.model = data['model']
+        self.scaler = data['scaler']
+        self.feature_names = data['feature_names']
+        self.training_data = data['training_data']
+        print("Successfully loaded model from Supabase storage")
+        return True
+
             
     def is_running_on_streamlit_cloud(self):
         """Check if the app is running on Streamlit Cloud or locally

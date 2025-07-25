@@ -150,7 +150,7 @@ else:
         "Double Sink": "double sink",
         "Cabinet": "cabinet",
         "Washing Dryer": "washing dryer",
-        "Washing Machine and Dryer": "washing machine dryer",
+        "Washing Machine Dryer": "washing machine dryer",
         "Symmetrical Bathtub": "symmetrical bathtub",
         "Asymmetrical Bathtub": "asymmetrical bathtub",
     }

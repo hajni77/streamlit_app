@@ -11,15 +11,16 @@ import requests
 from dotenv import load_dotenv
 from supabase import create_client, Client
 from generate_room import fit_objects_in_room
-from visualization import draw_2d_floorplan, visualize_room_with_shadows_3d, visualize_room_with_available_spaces
-from optimization import evaluate_room_layout
+from visualization_file import draw_2d_floorplan, visualize_room_with_shadows_3d, visualize_room_with_available_spaces
+from optimization_file import evaluate_room_layout
 
 from layout_ml import LayoutPreferenceModel, get_feature_importance
-from optimization import identify_available_space, suggest_placement_in_available_space, add_objects_to_available_spaces, suggest_additional_fixtures, switch_objects, analyze_pathway_accessibility
-from visualization import visualize_room_with_available_spaces
-from utils import check_overlap, check_valid_room
-from review import render_saved_floorplan
-from optimization import evaluate_room_layout, mark_inaccessible_spaces
+from layout_rl import LayoutRLModel
+from optimization_file import identify_available_space, suggest_placement_in_available_space, add_objects_to_available_spaces, suggest_additional_fixtures, switch_objects, analyze_pathway_accessibility
+from visualization_file import visualize_room_with_available_spaces
+from utils_file import check_overlap, check_valid_room
+from review import render_saved_floorplan, save_data
+from optimization_file import evaluate_room_layout, mark_inaccessible_spaces
 import psycopg2
 from dotenv import load_dotenv
 import os
@@ -31,6 +32,10 @@ import base64
 from matplotlib import patches
 from authentication import auth_section
 import json
+
+# Import the new validation system
+from models.bathroom import Bathroom
+from validation import get_constraint_validator
 
 
 # Load environment variables from .env
@@ -90,11 +95,11 @@ access_token = auth_section(supabase)
 if access_token:
     st.session_state['access_token'] = access_token
 
-# Define common fixtures
+# Define objects
 common_fixtures = [
     "Toilet", "Sink", "Shower", "Bathtub", "Cabinet", 
     "Double Sink", "Washing Machine", "Washing Dryer",
-    "Washing Machine and Dryer", "Symmetrical Bathtub", "Asymmetrical Bathtub",
+    "Washing Machine Dryer", "Symmetrical Bathtub", "Asymmetrical Bathtub",
     "Toilet Bidet"
 ]
 st.session_state.common_fixtures = common_fixtures
@@ -106,77 +111,80 @@ def get_user_supabase():
         return create_client(st.secrets['SUPABASE_URL'], token)
     return supabase  # fallback to anon/service
 
-# Function to Save Data to Supabase
-def save_data(room_sizes, positions, doors, review, is_enough_path, space, overall, is_everything, room_name=None, calculated_reward=None, reward=None):
-    if not st.session_state.auth.get('user'):
-        st.error("Please sign in to submit reviews")
-        return False
+# # Function to Save Data to Supabase
+# def save_data(room_sizes, positions, doors, review, is_enough_path, space, overall, is_everything, room_name=None, calculated_reward=None, reward=None):
+#     if not st.session_state.auth.get('user'):
+#         st.error("Please sign in to submit reviews")
+#         return False
     
-    with st.spinner("Saving your review to the database..."):
-        try:
-            objects = []
-            objects_positions = []
-            for position in positions:
-                if isinstance(position, (list, tuple)) and len(position) >= 8:
-                    objects.append({
-                        "name": position[5],
-                        "width": position[2],
-                        "depth": position[3],
-                        "height": position[4]
-                    })
-                    objects_positions.append({
-                        "x": position[0],
-                        "y": position[1],
-                        "must_be_corner": position[6],
-                        "against_wall": position[7]
-                    })
+#     with st.spinner("Saving your review to the database..."):
+#         try:
+#             objects = []
+#             objects_positions = []
+#             for position in positions:
+#                 if isinstance(position, (list, tuple)) and len(position) >= 8:
+#                     objects.append({
+#                         "name": position[5],
+#                         "width": position[2],
+#                         "depth": position[3],
+#                         "height": position[4]
+#                     })
+#                     objects_positions.append({
+#                         "x": position[0],
+#                         "y": position[1],
+#                         "must_be_corner": position[6],
+#                         "against_wall": position[7]
+#                     })
 
-            # Convert input data to match table schema
-            review_data = {
-                "room_name": room_name or "My Bathroom Design",
-                "room_width": int(room_sizes[0]),
-                "room_depth": int(room_sizes[1]),
-                "room_height": int(room_sizes[2]),
-                "objects": objects,
-                "objects_positions": objects_positions,
-                "review": {
-                    "text": review,
-                },
-                "doors_windows": [{
-                    "type": door[1],
-                    "position": {"x": door[2], "y": door[3]},
-                    "dimensions": {"width": door[4], "height": door[5]}
-                } for door in doors],
-                "user_id": st.session_state.user.id,
-                "room_name": room_name,
-                "calculated_reward": calculated_reward,
-                "real_reward": reward
-            }
+#             # Convert input data to match table schema
+#             review_data = {
+#                 "room_name": room_name or "My Bathroom Design",
+#                 "room_width": int(room_sizes[0]),
+#                 "room_depth": int(room_sizes[1]),
+#                 "room_height": int(room_sizes[2]),
+#                 "objects": objects,
+#                 "objects_positions": objects_positions,
+#                 "review": {
+#                     "text": review,
+#                 },
+#                 "doors_windows": [{
+#                     "type": door[1],
+#                     "position": {"x": door[2], "y": door[3]},
+#                     "dimensions": {"width": door[4], "height": door[5]}
+#                 } for door in doors],
+#                 "user_id": st.session_state.user.id,
+#                 "room_name": room_name,
+#                 "calculated_reward": calculated_reward,
+#                 "real_reward": reward
+#             }
 
-            # Add optional fields if available
-            if is_enough_path is not None and space is not None and overall is not None:
-                review_data.update({
-                    "is_enough_path": is_enough_path,
-                    "space": space,
-                    "overall": overall,
-                    "is_everything": is_everything,
-                })
+#             # Add optional fields if available
+#             if is_enough_path is not None and space is not None and overall is not None:
+#                 review_data.update({
+#                     "is_enough_path": is_enough_path,
+#                     "space": space,
+#                     "overall": overall,
+#                     "is_everything": is_everything,
+#                 })
                 
-            # Insert into Supabase
-            response = supabase.table('reviews').insert(review_data).execute()
-            if response.data:
-                return True
-            else:
-                st.error("Failed to save review")
-                return False
-        except Exception as e:
-            st.error(f"Error saving review: {str(e)}")
-            return False
+#             # Insert into Supabase
+#             response = supabase.table('reviews').insert(review_data).execute()
+#             if response.data:
+#                 return True
+#             else:
+#                 st.error("Failed to save review")
+#                 return False
+#         except Exception as e:
+#             st.error(f"Error saving review: {str(e)}")
+#             return False
 
 # Load object types
 OBJECT_TYPES = []
 with open('object_types.json') as f:
     OBJECT_TYPES = json.load(f)
+
+# Initialize constraint validator for the bathroom
+default_validator = get_constraint_validator(room_type="bathroom")
 
 # Define constants for the app
 door_images = { 
@@ -195,7 +203,7 @@ objects_map = {
     "Double Sink": "double sink",
     "Cabinet": "cabinet",
     "Washing Dryer": "washing dryer",
-    "Washing Machine and Dryer": "washing machine dryer",
+    "Washing Machine  Dryer": "washing machine dryer",
     "Symmetrical Bathtub": "symmetrical bathtub",
     "Asymmetrical Bathtub": "asymmetrical bathtub",
     "Toilet Bidet": "toilet bidet"
@@ -225,6 +233,7 @@ else:
         st.session_state.review_submitted = False
     
     # Initialize ML model if not already in session state
+    # Initialize ML model if not already in session state
     if 'ml_model' not in st.session_state:
         st.session_state.ml_model = LayoutPreferenceModel()
         
@@ -237,17 +246,38 @@ else:
             if 'supabase' in locals() or 'supabase' in globals():
                 supabase_loaded = st.session_state.ml_model.load_model_from_supabase(supabase)
                 if supabase_loaded:
-                    print("Model loaded from Supabase storage")
+                    print("ML Model loaded from Supabase storage")
         except Exception as e:
-            print(f"Note: Could not load from Supabase: {e}")
+            print(f"Note: Could not load ML model from Supabase: {e}")
+    
+    # Initialize RL model if not already in session state
+    if 'rl_model' not in st.session_state:
+        st.session_state.rl_model = LayoutRLModel()
+        
+        # Try to load the model from local storage first
+        local_load_success = st.session_state.rl_model.load_model()
+        
+        # If we're on Streamlit Cloud and have Supabase set up, also try loading from there
+        try:
+            # Only attempt Supabase if we have the client properly initialized
+            if 'supabase' in locals() or 'supabase' in globals():
+                supabase_loaded = st.session_state.rl_model.load_model_from_supabase(supabase)
+                if supabase_loaded:
+                    print("RL Model loaded from Supabase storage")
+        except Exception as e:
+            print(f"Note: Could not load RL model from Supabase: {e}")
             
         st.session_state.ml_update_needed = False
+        st.session_state.rl_update_needed = False
         
-    # Track if we need to update the ML model with a new selection
+    # Track if we need to update the models with a new selection
     if 'ml_update_needed' not in st.session_state:
         st.session_state.ml_update_needed = False
+    if 'rl_update_needed' not in st.session_state:
+        st.session_state.rl_update_needed = False
         
-    # Save model if it has been updated
+    # Save models if they have been updated
+    # Save ML model if updated
     if st.session_state.ml_update_needed:
         # Always save to local storage
         st.session_state.ml_model.save_model()
@@ -263,6 +293,23 @@ else:
             
         # Reset the update flag
         st.session_state.ml_update_needed = False
+    
+    # Save RL model if updated
+    if st.session_state.rl_update_needed:
+        # Always save to local storage
+        st.session_state.rl_model.save_model()
+        
+        # Try to save to Supabase if available
+        try:
+            if st.session_state.auth.get('user'):
+                user_id = st.session_state.auth.get('user').get('id')
+                st.session_state.rl_model.save_model_to_supabase(supabase, user_id)
+                print("RL Model saved to Supabase storage")
+        except Exception as e:
+            print(f"Could not save RL model to Supabase: {e}")
+            
+        # Reset the update flag
+        st.session_state.rl_update_needed = False
     
     if 'room_width' not in st.session_state:
         st.session_state.room_width = 200
@@ -764,7 +811,7 @@ else:
                 progress_bar.progress(0.7)  # 70% progress
                 
                 # Use the compare_room_layouts function to evaluate all layouts
-                from optimization import compare_room_layouts
+                from optimization_file import compare_room_layouts
                 best_layout, best_score, all_scores = compare_room_layouts(
                     all_layouts, 
                     bathroom_size, 
@@ -817,9 +864,30 @@ else:
                 
                 # Use ML model to predict the best layout if available
                 if st.session_state.ml_model.model is not None:
-                    ml_best_idx = st.session_state.ml_model.predict_best_layout(all_layouts, all_scores, layout_metrics)
-                    # Store the ML recommendation
-                    st.session_state.ml_recommended_layout = ml_best_idx
+                    try:
+                        # The ML model expects all_scores in the format [(layout, score, detailed_scores), ...]
+                        ml_best_idx = st.session_state.ml_model.predict_best_layout(all_layouts, all_scores, layout_metrics)
+                        # Store the ML recommendation
+                        st.session_state.ml_recommended_layout = ml_best_idx
+                    except Exception as e:
+                        st.warning(f"ML model prediction failed: {e}")
+                        st.session_state.ml_recommended_layout = None
+                
+                # Use RL model to predict the best layout if available
+                if hasattr(st.session_state, 'rl_model') and st.session_state.rl_model is not None:
+                    try:
+                        # Extract the required data from all_scores
+                        # all_scores format: [(layout, score, detailed_scores), ...]
+                        layouts = [item[0] for item in all_scores]
+                        scores = [item[1] for item in all_scores]
+                        detailed_scores = [item[2] for item in all_scores]
+                        
+                        rl_best_idx = st.session_state.rl_model.predict_best_layout(layouts, scores, detailed_scores, layout_metrics)
+                        # Store the RL recommendation
+                        st.session_state.rl_recommended_layout = rl_best_idx
+                    except Exception as e:
+                        st.warning(f"RL model prediction failed: {e}")
+                        st.session_state.rl_recommended_layout = None
                 
                 # Display all layouts as 2D floorplans for selection
                 progress_text.text("Select your preferred layout:")
@@ -942,7 +1010,7 @@ else:
             fig = visualize_room_with_shadows_3d(bathroom_size, positions, windows_doors)
             st.session_state.fig = fig
             
-            # Save 3D figure to bytes for download
+# Save 3D figure to bytes for download
             buf = io.BytesIO()
             fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
             buf.seek(0)
@@ -972,7 +1040,7 @@ else:
             figvis_without_shadow = visualize_room_with_available_spaces(positions, (room_width, room_depth), available_spaces_dict['without_shadow'], shadow=False)
             st.session_state.figvis_without_shadow = figvis_without_shadow
             
-            # Save figure to bytes for download
+            #Save figure to bytes for download
             buf4 = io.BytesIO()
             figvis_without_shadow.savefig(buf4, format='png', dpi=300, bbox_inches='tight')
             buf4.seek(0)
@@ -994,7 +1062,6 @@ else:
             # Check if room is valid
             isTrue = check_valid_room(positions)
             st.session_state.is_valid_room = isTrue
-
     
     # Visualization Tab Content
     with tab2:
@@ -1017,9 +1084,21 @@ else:
             if hasattr(st.session_state, 'layout_scores') and st.session_state.layout_scores and st.session_state.selected_layout_index is None:
                 # Display all layouts as 2D floorplans for selection
                 st.markdown("<h3 class='section-header'>Select Your Preferred Layout </h3>", unsafe_allow_html=True)
+                # Display recommendations from both models if available
                 if hasattr(st.session_state, 'ml_recommended_layout') and st.session_state.ml_recommended_layout is not None:
-                    recommended_layout = st.session_state.ml_recommended_layout + 1
-                    st.markdown(f"<p>ML Model Recommended Layout: {recommended_layout}</p>", unsafe_allow_html=True)
+                    ml_recommended_layout = st.session_state.ml_recommended_layout + 1
+                    st.markdown(f"<p>ML Model Recommended Layout: {ml_recommended_layout}</p>", unsafe_allow_html=True)
+                
+                if hasattr(st.session_state, 'rl_recommended_layout') and st.session_state.rl_recommended_layout is not None:
+                    rl_recommended_layout = st.session_state.rl_recommended_layout + 1
+                    st.markdown(f"<p>RL Model Recommended Layout: {rl_recommended_layout}</p>", unsafe_allow_html=True)
+                    
+                # If both models agree on a recommendation, highlight it
+                if (hasattr(st.session_state, 'ml_recommended_layout') and 
+                    hasattr(st.session_state, 'rl_recommended_layout') and 
+                    st.session_state.ml_recommended_layout == st.session_state.rl_recommended_layout):
+                    agreed_layout = st.session_state.ml_recommended_layout + 1
+                    st.markdown(f"<p style='color: green; font-weight: bold;'>Both Models Recommend Layout: {agreed_layout} ⭐</p>", unsafe_allow_html=True)
                 # Get bathroom size and windows/doors from session state
                 bathroom_size = st.session_state.bathroom_size
                 windows_doors = st.session_state.windows_doors
@@ -1061,9 +1140,16 @@ else:
                                 # Display score and metrics
                                 st.markdown(f"**Layout {layout_idx+1}**")
                                 
-                                # Highlight ML recommended layout
-                                if hasattr(st.session_state, 'ml_recommended_layout') and layout_idx == st.session_state.ml_recommended_layout:
+                                # Highlight recommended layouts
+                                ml_recommended = hasattr(st.session_state, 'ml_recommended_layout') and layout_idx == st.session_state.ml_recommended_layout
+                                rl_recommended = hasattr(st.session_state, 'rl_recommended_layout') and layout_idx == st.session_state.rl_recommended_layout
+                                
+                                if ml_recommended and rl_recommended:
+                                    st.markdown(f"Score: {score:.1f}/100 ⭐ **Both Models Recommend**")
+                                elif ml_recommended:
                                     st.markdown(f"Score: {score:.1f}/100 💡 **ML Recommended**")
+                                elif rl_recommended:
+                                    st.markdown(f"Score: {score:.1f}/100 🤖 **RL Recommended**")
                                 else:
                                     st.markdown(f"Score: {score:.1f}/100")
                                     
@@ -1099,7 +1185,8 @@ else:
                                     st.session_state.total_score = score
                                     st.session_state.detailed_scores = detailed_scores
                                     
-                                    # Add this selection to the ML model's training data
+                                    # Add this selection to both models' training data
+                                    # Train ML model
                                     st.session_state.ml_model.add_training_example(
                                         layout_idx, 
                                         st.session_state.all_layouts, 
@@ -1108,11 +1195,29 @@ else:
                                     )
                                     st.session_state.ml_update_needed = True
                                     
+                                    # # Train RL model
+                                    try:
+                                        # Extract detailed scores from all_scores
+                                        # all_scores format: [(layout, score, detailed_scores), ...]
+                                        detailed_scores = [item[2] for item in st.session_state.all_scores]
+                                        
+                                        st.session_state.rl_model.add_training_example(
+                                            layout_idx, 
+                                            st.session_state.all_layouts, 
+                                            [item[1] for item in st.session_state.all_scores],  # Extract scores
+                                            detailed_scores,
+                                            st.session_state.layout_metrics
+                                        )
+                                        st.session_state.rl_update_needed = True
+                                    except Exception as e:
+                                        st.warning(f"RL model training failed: {e}")
+                                        st.session_state.rl_update_needed = False
+                                    
                                     # Regenerate visualizations for the selected layout
                                     fig_3d = visualize_room_with_shadows_3d(bathroom_size, layout, windows_doors)
                                     st.session_state.fig = fig_3d
                                     
-                                    # Save 3D figure to bytes for download
+                                    # # Save 3D figure to bytes for download
                                     buf = io.BytesIO()
                                     fig_3d.savefig(buf, format='png', dpi=300, bbox_inches='tight')
                                     buf.seek(0)
@@ -1149,24 +1254,32 @@ else:
                 with col1:
                     st.markdown("<p><b>2D Floorplan</b></p>", unsafe_allow_html=True)
                     st.pyplot(st.session_state.fig2)
-                    download_button_2d = st.download_button(
-                        label="Download 2D Floorplan",
-                        data=st.session_state.fig2_bytes,
-                        file_name="bathroom_floorplan.png",
-                        mime="image/png",
-                        key="download_2d"
-                    )
+                    if st.session_state.fig2_bytes is not None:
+                        download_button_2d = st.download_button(
+                            label="Download 2D Floorplan",
+                            data=st.session_state.fig2_bytes,
+                            file_name="bathroom_floorplan.png",
+                            mime="image/png",
+                            key="download_2d"
+                        )
+                    else:
+                        st.warning("2D floorplan download not available")
+                        download_button_2d = False
                 
                 with col2:
                     st.markdown("<p><b>3D Room Layout</b></p>", unsafe_allow_html=True)
                     st.pyplot(st.session_state.fig)
-                    download_button = st.download_button(
-                        label="Download 3D View",
-                        data=st.session_state.fig_bytes,
-                        file_name="bathroom_3d_view.png",
-                        mime="image/png",
-                        key="download_3d"
-                    )
+                    if st.session_state.fig_bytes is not None:
+                        download_button = st.download_button(
+                            label="Download 3D View",
+                            data=st.session_state.fig_bytes,
+                            file_name="bathroom_3d_view.png",
+                            mime="image/png",
+                            key="download_3d"
+                        )
+                    else:
+                        st.warning("3D view download not available")
+                        download_button = False
                 
                 if download_button or download_button_2d:
                     st.session_state.download_clicked = True      
@@ -1200,9 +1313,8 @@ else:
                                 "Height": f"{pos[4]} cm"
                             })
                     
-                    # Display as a dataframe
-                    if object_data:
-                        st.dataframe(object_data, use_container_width=True)
+                    # Display data
+                    st.dataframe(object_data)
             else:
                 # Show a message prompting the user to select a layout
                 st.info("👆 Please select a layout from above to view detailed visualizations and analysis.")
@@ -1732,6 +1844,7 @@ else:
                     calculated_reward = st.session_state.total_score
                     with st.spinner("Saving your review..."):
                         success = save_data(
+                            supabase,
                             (room_width, room_depth, room_height), 
                             st.session_state.positions, 
                             st.session_state.windows_doors, 
@@ -1772,14 +1885,22 @@ else:
             
             with review_col2:
                 st.markdown("<p><b>2D Floorplan</b></p>", unsafe_allow_html=True)
-                st.pyplot(st.session_state.fig2)
-                download_button_2d = st.download_button(
-                    label="Download 2D Floorplan",
-                    data=st.session_state.fig2_bytes,
-                    file_name="bathroom_floorplan.png",
-                    mime="image/png",
-                    key="download_2d_review"
-                )
+                if 'fig2' in st.session_state:
+                    st.pyplot(st.session_state.fig2)
+                    if 'fig2_bytes' in st.session_state and st.session_state.fig2_bytes is not None:
+                        download_button_2d = st.download_button(
+                            label="Download 2D Floorplan",
+                            data=st.session_state.fig2_bytes,
+                            file_name="bathroom_floorplan.png",
+                            mime="image/png",
+                            key="download_2d_review"
+                        )
+                    else:
+                        st.warning("2D floorplan download not available")
+                        download_button_2d = False
+                else:
+                    st.info("2D floorplan visualization not available")
+                    download_button_2d = False
             
             with review_col3:
                 # Layout quality score

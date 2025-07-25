@@ -9,3 +9,6 @@ python-dotenv
 st-supabase-connection
 supabase
 scikit-learn
+torch
+gym
+stable-baselines3
