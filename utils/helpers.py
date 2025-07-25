@@ -1060,16 +1060,16 @@ def get_object_def(obj_type):
 def calculate_behind_door_space(door_x, door_y, door_width, door_depth, door_wall,hinge,room_width, room_depth):
     hinge = hinge.lower()
     if door_wall == "top" and hinge == "left" or door_wall == "bottom" and hinge == "right":
-        behind_door_space = (door_x+door_width, 0, room_depth, 2*door_depth)
+        behind_door_space = (0, door_y+door_width, room_depth, room_width)
         return behind_door_space
     elif door_wall == "bottom" and hinge == "left" or door_wall == "top" and hinge == "right":
-        behind_door_space = (0, 0, door_y, 2*door_depth)
+        behind_door_space = (0,0,  door_y, room_width)
         return behind_door_space
     elif door_wall == "left" and hinge == "left" or door_wall == "right" and hinge == "right":
-        behind_door_space = (0,0, 2*door_depth, door_x)
+        behind_door_space = (0,0, room_depth, door_x)
         return behind_door_space
     elif door_wall == "right" and hinge == "left" or door_wall == "left" and hinge == "right":
-        behind_door_space = (door_x + door_width,0, 2*door_depth, room_width)
+        behind_door_space = (door_x + door_width,0, room_depth, room_width)
         return behind_door_space
     
 def generate_random_position(wall,room_width,room_depth,obj_width,obj_depth):
