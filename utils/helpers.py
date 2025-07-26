@@ -1071,7 +1071,20 @@ def calculate_behind_door_space(door_x, door_y, door_width, door_depth, door_wal
     elif door_wall == "right" and hinge == "left" or door_wall == "left" and hinge == "right":
         behind_door_space = (door_x + door_width,0, room_depth, room_width)
         return behind_door_space
-    
+def calculate_before_door_space(door_x, door_y, door_width, door_depth, door_wall,hinge,room_width, room_depth):
+    hinge = hinge.lower()
+    if door_wall == "top":
+        before_door_space = (door_x+door_width, door_y, door_width, door_width)
+        return before_door_space
+    elif door_wall == "bottom":
+        before_door_space = (door_x-door_width,door_y,  door_width, door_width)
+        return before_door_space
+    elif door_wall == "left" :
+        before_door_space = (door_x,door_y+door_width, door_width, door_width)
+        return before_door_space
+    elif door_wall == "right" :
+        before_door_space = (door_x,door_y-door_width, room_width, room_width)
+        return before_door_space 
 def generate_random_position(wall,room_width,room_depth,obj_width,obj_depth):
     positions = []
     if wall == "top":
@@ -1142,8 +1155,13 @@ def windows_doors_overlap(windows_doors, x, y, z, width, depth, height, room_wid
             return True
         if "toilet" in obj_type.lower():
             behind_door_space = calculate_behind_door_space(wx, wy, wwidth, wheight, wall,hinge,room_width, room_depth)
-            if not check_overlap(behind_door_space, object_space[0]):
-                return True
+
+            if check_overlap(behind_door_space, object_space[0]):
+                overlap = calculate_overlap_area(behind_door_space, object_space[0])
+                if overlap < room_width * room_depth - 3600:
+                    return False
+                else:
+                    return True
      
     if "window" in name.lower():
         # Check if one rectangle is to the left of the other
