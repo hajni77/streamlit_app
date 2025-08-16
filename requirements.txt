@@ -12,3 +12,4 @@ scikit-learn
 torch
 gym
 stable-baselines3
+gotrue
