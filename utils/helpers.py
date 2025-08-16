@@ -1,12 +1,82 @@
 
-
-
+import numpy as np
+import streamlit as st
 import math
 import json
+from algorithms.available_space import check_enclosed_spaces, identify_available_space
 OBJECT_TYPES = []
 with open('object_types.json') as f:
     OBJECT_TYPES = json.load(f)
 
+def save_data(supabase, room_sizes, positions, doors, review, is_enough_path, space, overall, is_everything, room_name=None, calculated_reward=None, reward=None):
+    if not st.session_state.auth.get('user'):
+        st.error("Please sign in to submit reviews")
+        return False
+    
+    with st.spinner("Saving your review to the database..."):
+        try:
+            print(type(positions))
+            print(positions.bathroom.objects)
+            placed_objects = positions.bathroom.objects
+            objects = []
+            objects_positions = []
+            for position in placed_objects:
+                object = position['object']
+                objects.append({
+                        "name": object.name,
+                        "width": object.width,
+                        "depth": object.depth,
+                        "height": object.height
+                    })
+                objects_positions.append({
+                        "x": object.position[0],
+                        "y": object.position[1],
+                        "wall": object.wall,
+                        "must_be_corner": OBJECT_TYPES[object.name]["must_be_corner"],
+                        "against_wall": OBJECT_TYPES[object.name]["must_be_against_wall"]
+                    })
+
+            # Convert input data to match table schema
+            review_data = {
+                "room_name": room_name or "My Bathroom Design",
+                "room_width": int(room_sizes[0]),
+                "room_depth": int(room_sizes[1]),
+                "room_height": int(room_sizes[2]),
+                "objects": objects,
+                "objects_positions": objects_positions,
+                "review": {
+                    "text": review,
+                },
+                "doors_windows": [{
+                    "type": doors.wall,
+                    "position": {"x": doors.position[0], "y": doors.position[1]},
+                    "dimensions": {"width": doors.width, "depth": doors.depth, "height": doors.height,"wall": doors.wall, "hinge": doors.hinge, "way": doors.way}
+                } ],
+                "user_id": st.session_state.user.id,
+                "room_name": room_name,
+                "calculated_reward": calculated_reward,
+                "real_reward": reward
+            }
+
+            # Add optional fields if available
+            if is_enough_path is not None and space is not None and overall is not None:
+                review_data.update({
+                    "is_enough_path": is_enough_path,
+                    "space": space,
+                    "overall": overall,
+                    "is_everything": is_everything,
+                })
+                
+            # Insert into Supabase
+            response = supabase.table('reviews').insert(review_data).execute()
+            if response.data:
+                return True
+            else:
+                st.error("Failed to save review")
+                return False
+        except Exception as e:
+            st.error(f"Error saving review: {str(e)}")
+            return False
 def check_which_wall(new_rect, room_width, room_depth):
     x,y,width,depth, height = new_rect
     
@@ -396,7 +466,7 @@ def sort_objects_by_size(object_list, room_width, room_depth):
         elif "sink" in object_list[1] or "Sink" in object_list[1]:
             return object_list[::-1]
     else:
-        objects_list_priority = ["bathtub", "shower", "asymmetrical bathtub", "double sink", "sink", "toilet", "toilet bidet","washing machine", "washing dryer",  "cabinet", "washing machine dryer"]
+        objects_list_priority = ["bathtub", "shower", "asymmetrical bathtub", "toilet", "toilet bidet","double sink", "sink", "washing machine", "washing dryer",  "cabinet", "washing machine dryer"]
         # sort object_list by priority
         object_list.sort(key=lambda obj: objects_list_priority.index(obj) if obj in objects_list_priority else len(objects_list_priority), reverse=False)
         return object_list
@@ -642,7 +712,7 @@ def is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_de
 
     
     shadow_top, shadow_left, shadow_right, shadow_bottom = shadow_space  # Extract shadow values
-    x, y, width, depth, height = new_rect
+    x, y, width, depth, height, wall = new_rect
     # check that the object actually fits in the room
     if x < 0 or y < 0 or x + depth > room_width or y + width > room_depth:
         return False  # Object extends outside the room → INVALID
@@ -660,6 +730,7 @@ def is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_de
         r_depth = rect["object"].depth
         r_height = rect["object"].height
         r_shadow = rect["object"].shadow
+        r_wall = rect["object"].wall
 
         rect_sizes = (rx, ry, r_width, r_depth,r_height)
         
@@ -682,6 +753,33 @@ def is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_de
         # check if the existing object's shadow overlaps the new object
         if check_overlap(r_shadow_space[0], object_space[0]):
             return False
+        # # check if not enough space for object
+        # r_vectors = []
+        # vectors = []
+        # min_distance = 60
+        # if (r_wall == "top-left" and wall == "top-right") or (r_wall == "bottom-right" and wall == "bottom-left") or (r_wall == "top-right" and wall == "top-left") or (r_wall == "bottom-left" and wall == "bottom-right"):
+        #     return True
+        # # if not in corner and not against same wall
+        # elif (r_wall not in wall or wall not in r_wall):
+        #     r_vectors.extend([
+        #         (x, y),                # Top-left
+        #         (x + depth, y),        # Top-right
+        #         (x, y + width),        # Bottom-left
+        #         (x + depth, y + width) # Bottom-right
+        #     ])
+        #     vectors.extend([
+        #         (rx, ry),                # Top-left
+        #         (rx + r_depth, ry),        # Top-right
+        #         (rx, ry + r_width),        # Bottom-left
+        #         (rx + r_depth, ry + r_width) # Bottom-right
+        #     ])
+        #     for i in range(len(vectors)):
+        #         for j in range(len(r_vectors)):
+        #             distance = np.sqrt((vectors[i][0] - r_vectors[j][0])**2 + (vectors[i][1] - r_vectors[j][1])**2)
+        #             if distance < min_distance:
+        #                 return False
+    
+
 
 
     
@@ -822,98 +920,93 @@ def check_opposite_walls_distance(placed_objects, room_sizes, min_distance=60):
     
     return len(violations) == 0, violations
 
-def identify_available_space(layouts, room_sizes, grid_size=1, windows_doors=[]):
-    """
-    Identifies available space in a room after objects have been placed.
-    Returns both with and without shadow.
-    Args:
-        layouts (list): List of layouts.
-        room_sizes (tuple): Room dimensions as (width, depth).
-        grid_size (int): Size of the grid cell in cm.
-        windows_doors (list): List of windows and doors.
-    Returns:
-        dict: {'with_shadow': [...], 'without_shadow': [...]} available spaces as (x, y, width, depth) tuples.
-    """
-    windows_doors = windows_doors
-    def _find_spaces(include_shadows):
-        room_width, room_depth = room_sizes
-        grid_width = room_width // grid_size 
-        grid_depth = room_depth // grid_size 
-        grid = [[1 for _ in range(grid_depth)] for _ in range(grid_width)]
-        # Mark occupied spaces
-        # extract layouts to layout list
+# def identify_available_space(layouts, room_sizes, grid_size=1, windows_doors=[]):
+#     """
+#     Identifies available space in a room after objects have been placed.
+#     Returns both with and without shadow.
+#     Args:
+#         layouts (list): List of layouts.
+#         room_sizes (tuple): Room dimensions as (width, depth).
+#         grid_size (int): Size of the grid cell in cm.
+#         windows_doors (list): List of windows and doors.
+#     Returns:
+#         dict: {'with_shadow': [...], 'without_shadow': [...]} available spaces as (x, y, width, depth) tuples.
+#     """
+#     windows_doors = windows_doors
+#     def _find_spaces(include_shadows):
+#         room_width, room_depth = room_sizes
+#         grid_width = room_width // grid_size 
+#         grid_depth = room_depth // grid_size 
+#         grid = [[1 for _ in range(grid_depth)] for _ in range(grid_width)]
+#         # Mark occupied spaces
+#         # extract layouts to layout list
+#         for obj in layouts:
 
+#             i = 0
+#             while i < len(obj):
 
-        
-            
-        door_wall = windows_doors.wall
-        for obj in layouts:
-
-            i = 0
-            while i < len(obj):
-
-                name = obj[i]['object'].name
-                width = obj[i]['object'].width
-                depth = obj[i]['object'].depth
-                height = obj[i]['object'].height
-                shadow = obj[i]['object'].shadow
-                position = obj[i]['object'].position
-                wall = obj[i]['object'].wall
-                x,y = position
-                shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
+#                 name = obj[i]['object'].name
+#                 width = obj[i]['object'].width
+#                 depth = obj[i]['object'].depth
+#                 height = obj[i]['object'].height
+#                 shadow = obj[i]['object'].shadow
+#                 position = obj[i]['object'].position
+#                 wall = obj[i]['object'].wall
+#                 x,y = position
+#                 shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
                 
-                if include_shadows:
-                    start_x = max(0, (x - shadow_top) // grid_size)
-                    start_y = max(0, (y - shadow_left) // grid_size)
-                    end_x = min(grid_width, (x + depth + shadow_bottom) // grid_size )
-                    end_y = min(grid_depth, (y + width + shadow_right) // grid_size )
-                else:
-                    start_x = max(0, x // grid_size)
-                    start_y = max(0, y // grid_size)
-                    end_x = min(grid_width, (x + depth) // grid_size )
-                    end_y = min(grid_depth, (y + width) // grid_size )
-                for i in range(start_x, end_x):
-                    for j in range(start_y, end_y):
-                        grid[i][j] = 0
-                i += 1
-        if include_shadows:
-            wall = windows_doors.wall
-            x = windows_doors.position[0]
-            y = windows_doors.position[1]
-            width = windows_doors.width
-            start_x = max(0, (x ) // grid_size)
-            start_y = max(0, (y) // grid_size)
-            end_x = min(grid_width, (x + width) // grid_size )
-            end_y = min(grid_depth, (y + width) // grid_size )
-            if wall == "right":
-                end_y = start_y
-                start_y = start_y - width
-            if wall == "bottom":
-                end_x = start_x
-                start_x = start_x - width
-            for i in range(start_x, end_x):
-                for j in range(start_y, end_y):
-                    grid[i][j] = 0
-        available_spaces = []
-        visited = [[False for _ in range(grid_depth)] for _ in range(grid_width)]
-        for i in range(grid_width):
-            for j in range(grid_depth):
-                if grid[i][j] == 1 and not visited[i][j]:
-                    space = find_contiguous_space(grid, visited, i, j, grid_width, grid_depth)
-                    x = space["start_x"] * grid_size
-                    y = space["start_y"] * grid_size
-                    width = (space["end_y"] - space["start_y"]) * grid_size
-                    depth = (space["end_x"] - space["start_x"]) * grid_size
-                    if width >= 30 and depth >= 30:
-                        available_spaces.append((x, y, width, depth))
-        # closed = check_enclosed_spaces(grid, grid_size, room_width, room_depth)
-        # if closed:
-        #     st.warning("Warning: The available space in the room is not convex. This may affect optimal object placement.")
-        return available_spaces
-    return {
-        'with_shadow': _find_spaces(True),
-        'without_shadow': _find_spaces(False)
-    }
+#                 if include_shadows:
+#                     start_x = max(0, (x - shadow_top) // grid_size)
+#                     start_y = max(0, (y - shadow_left) // grid_size)
+#                     end_x = min(grid_width, (x + depth + shadow_bottom) // grid_size )
+#                     end_y = min(grid_depth, (y + width + shadow_right) // grid_size )
+#                 else:
+#                     start_x = max(0, x // grid_size)
+#                     start_y = max(0, y // grid_size)
+#                     end_x = min(grid_width, (x + depth) // grid_size )
+#                     end_y = min(grid_depth, (y + width) // grid_size )
+#                 for i in range(start_x, end_x):
+#                     for j in range(start_y, end_y):
+#                         grid[i][j] = 0
+#                 i += 1
+#         if include_shadows:
+#             wall = windows_doors.wall
+#             x = windows_doors.position[0]
+#             y = windows_doors.position[1]
+#             width = windows_doors.width
+#             start_x = max(0, (x ) // grid_size)
+#             start_y = max(0, (y) // grid_size)
+#             end_x = min(grid_width, (x + width) // grid_size )
+#             end_y = min(grid_depth, (y + width) // grid_size )
+#             if wall == "right":
+#                 end_y = start_y
+#                 start_y = start_y - width
+#             if wall == "bottom":
+#                 end_x = start_x
+#                 start_x = start_x - width
+#             for i in range(start_x, end_x):
+#                 for j in range(start_y, end_y):
+#                     grid[i][j] = 0
+#         available_spaces = []
+#         visited = [[False for _ in range(grid_depth)] for _ in range(grid_width)]
+#         for i in range(grid_width):
+#             for j in range(grid_depth):
+#                 if grid[i][j] == 1 and not visited[i][j]:
+#                     space = find_contiguous_space(grid, visited, i, j, grid_width, grid_depth)
+#                     x = space["start_x"] * grid_size
+#                     y = space["start_y"] * grid_size
+#                     width = (space["end_y"] - space["start_y"]) * grid_size
+#                     depth = (space["end_x"] - space["start_x"]) * grid_size
+#                     if width >= 30 and depth >= 30:
+#                         available_spaces.append((x, y, width, depth))
+#         # closed = check_enclosed_spaces(grid, grid_size, room_width, room_depth)
+#         # if closed:
+#         #     st.warning("Warning: The available space in the room is not convex. This may affect optimal object placement.")
+#         return available_spaces
+#     return {
+#         'with_shadow': _find_spaces(True),
+#         'without_shadow': _find_spaces(False)
+#     }
 
 
 # without sink the room is invalid
@@ -1174,79 +1267,79 @@ def windows_doors_overlap(windows_doors, x, y, z, width, depth, height, room_wid
     return False
 
 
-def check_enclosed_spaces(grid, grid_size, room_width, room_depth, min_path_width=50):
-    """
-    Check if there are any enclosed spaces in the room that can't be reached by a minimum width path.
+# def check_enclosed_spaces(grid, grid_size, room_width, room_depth, min_path_width=50):
+#     """
+#     Check if there are any enclosed spaces in the room that can't be reached by a minimum width path.
     
-    Args:
-        grid (list): 2D grid representation of the room
-        grid_size (int): Size of grid cells in cm
-        room_width (int): Room width in cm
-        room_depth (int): Room depth in cm
-        min_path_width (int): Minimum required path width in cm (default: 50cm)
+#     Args:
+#         grid (list): 2D grid representation of the room
+#         grid_size (int): Size of grid cells in cm
+#         room_width (int): Room width in cm
+#         room_depth (int): Room depth in cm
+#         min_path_width (int): Minimum required path width in cm (default: 50cm)
         
-    Returns:
-        bool: True if there are enclosed spaces, False otherwise
-    """
-    # Convert room dimensions to grid coordinates
-    grid_width = room_width // grid_size 
-    grid_depth = room_depth // grid_size 
-    # Create a copy of the grid to mark visited cells
-    visited = [[False for _ in range(grid_depth)] for _ in range(grid_width)]
+#     Returns:
+#         bool: True if there are enclosed spaces, False otherwise
+#     """
+#     # Convert room dimensions to grid coordinates
+#     grid_width = room_width // grid_size 
+#     grid_depth = room_depth // grid_size 
+#     # Create a copy of the grid to mark visited cells
+#     visited = [[False for _ in range(grid_depth)] for _ in range(grid_width)]
     
-    # Define minimum path width in grid cells
-    min_path_cells = min_path_width // grid_size
+#     # Define minimum path width in grid cells
+#     min_path_cells = min_path_width // grid_size
     
-    def is_accessible(x, y):
-        """Check if a cell is accessible and within bounds."""
-        return (0 <= x < grid_width and 0 <= y < grid_depth and 
-                grid[x][y] == 0 and not visited[x][y])
+#     def is_accessible(x, y):
+#         """Check if a cell is accessible and within bounds."""
+#         return (0 <= x < grid_width and 0 <= y < grid_depth and 
+#                 grid[x][y] == 0 and not visited[x][y])
     
-    def check_path_width(x, y):
-        """Check if there's enough width for the path."""
-        # Check horizontal width
-        for dx in range(-min_path_cells//2, min_path_cells//2 + 1):
-            nx = x + dx
-            if 0 <= nx < grid_width and grid[nx][y] == 1:
-                return False
-        # Check vertical width
-        for dy in range(-min_path_cells//2, min_path_cells//2 + 1):
-            ny = y + dy
-            if 0 <= ny < grid_depth and grid[x][ny] == 1:
-                return False
-        return True
+#     def check_path_width(x, y):
+#         """Check if there's enough width for the path."""
+#         # Check horizontal width
+#         for dx in range(-min_path_cells//2, min_path_cells//2 + 1):
+#             nx = x + dx
+#             if 0 <= nx < grid_width and grid[nx][y] == 1:
+#                 return False
+#         # Check vertical width
+#         for dy in range(-min_path_cells//2, min_path_cells//2 + 1):
+#             ny = y + dy
+#             if 0 <= ny < grid_depth and grid[x][ny] == 1:
+#                 return False
+#         return True
     
-    def dfs(x, y):
-        """Depth-first search to mark accessible areas."""
-        stack = [(x, y)]
-        while stack:
-            x, y = stack.pop()
-            if not is_accessible(x, y) or not check_path_width(x, y):
-                continue
+#     def dfs(x, y):
+#         """Depth-first search to mark accessible areas."""
+#         stack = [(x, y)]
+#         while stack:
+#             x, y = stack.pop()
+#             if not is_accessible(x, y) or not check_path_width(x, y):
+#                 continue
             
-            visited[x][y] = True
+#             visited[x][y] = True
             
-            # Add neighbors to stack
-            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                nx, ny = x + dx, y + dy
-                if is_accessible(nx, ny):
-                    stack.append((nx, ny))
+#             # Add neighbors to stack
+#             for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+#                 nx, ny = x + dx, y + dy
+#                 if is_accessible(nx, ny):
+#                     stack.append((nx, ny))
     
-    # Start DFS from the room entrances (typically along walls)
-    for x in range(grid_width):
-        if grid[x][0] == 0:
-            dfs(x, 0)
-        if grid[x][grid_depth-1] == 0:
-            dfs(x, grid_depth-1)
+#     # Start DFS from the room entrances (typically along walls)
+#     for x in range(grid_width):
+#         if grid[x][0] == 0:
+#             dfs(x, 0)
+#         if grid[x][grid_depth-1] == 0:
+#             dfs(x, grid_depth-1)
     
-    for y in range(grid_depth):
-        if grid[0][y] == 0:
-            dfs(0, y)
-        if grid[grid_width-1][y] == 0:
-            dfs(grid_width-1, y)
+#     for y in range(grid_depth):
+#         if grid[0][y] == 0:
+#             dfs(0, y)
+#         if grid[grid_width-1][y] == 0:
+#             dfs(grid_width-1, y)
     
-    # Check if there are any unvisited empty spaces
-    for x in range(grid_width):
-        for y in range(grid_depth):
-            if grid[x][y] == 0 and not visited[x][y]:
-                return True  # Found an enclosed space
+#     # Check if there are any unvisited empty spaces
+#     for x in range(grid_width):
+#         for y in range(grid_depth):
+#             if grid[x][y] == 0 and not visited[x][y]:
+#                 return True  # Found an enclosed space

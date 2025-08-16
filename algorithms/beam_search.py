@@ -40,10 +40,8 @@ class BeamSearch:
         
         # Process each object in sorted order
         for obj in sorted_objects:
-
+            
             obj_def = self.bathroom.OBJECT_TYPES[obj]
-            print("obj", obj)
-            print("obj_def", obj_def)
             validator = ObjectConstraintValidator.get_validator(obj)
             new_candidates = []
             # Generate placement options for the object
@@ -53,10 +51,15 @@ class BeamSearch:
                 placement_options = self.placement_strategy.generate_options(
                     layout, obj, obj_def, self.bathroom.get_size(), layout.bathroom.get_placed_objects(), windows_doors
                 )
+                print("obj", obj)
                 if not placement_options and obj == "double sink":
-                    obj_def = self.bathroom.OBJECT_TYPES["double sink"]
+                    obj_def = self.bathroom.OBJECT_TYPES["sink"]
+                    #change sorted_objects double sink to sink
+                    sorted_objects.remove("double sink")
+                    #place the sink first
+                    sorted_objects.insert(0, "sink")
                     placement_options = self.placement_strategy.generate_options(
-                        layout, "double sink", obj_def, self.bathroom.get_size(), layout.bathroom.get_placed_objects(), windows_doors
+                        layout, "sink", obj_def, self.bathroom.get_size(), layout.bathroom.get_placed_objects(), windows_doors
                     )
 
                 # if not placement_options and self.backtracking_strategy:
@@ -97,16 +100,20 @@ class BeamSearch:
             # If no candidates, we're stuck
             if not new_candidates:
                 continue
-            # delete candidates with the exact same score and keep only one
-            if obj == "bathtub" or obj == "shower":
+            # 
+            if obj.lower() == "bathtub" or obj.lower() == "shower":
                 new_candidates = sorted(new_candidates, key=lambda x: x.score, reverse=True)
+                
             # delete candidates with the exact same score and keep only one
             else:
-                seen = set()
-                new_candidates = [
-                    layout for layout in sorted(new_candidates, key=lambda x: x.score, reverse=True)
-                    if (rounded := round(layout.score, 5)) not in seen and not seen.add(rounded)
-                ]
+                seen = {}
+                sorted_canditates = sorted(new_candidates, key=lambda x: x.score, reverse=True)
+                for layout in sorted_canditates:
+                    rounded = round(layout.score, 5)
+                    seen[rounded] = seen.get(rounded, 0) + 1
+                    
+                    if seen[rounded] <= 2:  # Keep up to 3 layouts with the same score
+                        new_candidates.append(layout)
 
 
             # Select top layouts for the next iteration

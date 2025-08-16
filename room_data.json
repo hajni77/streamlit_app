@@ -1,1 +1,1 @@
-{"room_width": 200, "room_depth": 200, "room_height": 280, "positions": [], "windows_doors": 
+{"room_width": 150, "room_depth": 250, "room_height": 280, "objects": ["bathtub", "sink", "toilet"], "positions": [[0, 178, 72, 145, 56, [0, 0, 0, 0]], [0, 45, 60, 50, 85, [0, 0, 0, 60]], [0, 110, 55, 70, 40, [0, 0, 0, 60]]], "windows_doors": [[50, 0], 75, 200, 5, "Right", "Inward", "left"], "review": "I like the layout of the bathroom. The objects are well-positioned and there's enough space to move around.", "is_enough_path": true, "space": 3, "overall": 3, "is_everything": true}

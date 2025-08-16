@@ -30,7 +30,17 @@ class Bathroom:
             elif hasattr(obj, 'position') and obj.position is not None:
                 placed_objects.append(obj)
         return placed_objects
-        
+    def get_placed_objects_name(self):
+        """Get all placed objects."""
+        placed_objects = []
+        for obj in self.objects:
+            # Handle both object instances and dictionaries
+            if isinstance(obj, dict):
+                if 'object' in obj and obj['object'] is not None:
+                    placed_objects.append(obj['object'].name)
+            elif hasattr(obj, 'object') and obj.object is not None:
+                placed_objects.append(obj.object.name)
+        return placed_objects
     def get_unplaced_objects(self):
         """Get all unplaced objects."""
         unplaced_objects = []
@@ -53,9 +63,15 @@ class Bathroom:
     
     def get_door_walls(self):
         """Get the walls that have doors."""
-
-        windows_doors = self.windows_doors
-        return windows_doors.wall
+        if not self.windows_doors:
+            return []
+            
+        # Check if windows_doors is a list or a single object
+        if isinstance(self.windows_doors, list):
+            return [wd.wall for wd in self.windows_doors if wd.name.startswith("door")]
+        else:
+            # Backwards compatibility for single door
+            return [self.windows_doors.wall]
 
     def clone(self):
         """Clone the bathroom."""

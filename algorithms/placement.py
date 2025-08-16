@@ -51,7 +51,6 @@ class DefaultPlacementStrategy(PlacementStrategy):
         room_width, room_depth, room_height = bathroom_size
         shadow = obj_def["shadow_space"]
         #use_optimal_size = random.choice([True, False])
-        print("use_optimal_size", use_optimal_size)
         # Get size variations to try
         # #if use_optimal_size:
         #     # Only use optimal size
@@ -68,7 +67,7 @@ class DefaultPlacementStrategy(PlacementStrategy):
         #     if obj_def["name"] == "Washing Machine":
         #         min_width, max_width, min_depth, max_depth, min_height, max_height = obj_def["size_range"]
         #         size_variations.append((min_width, min_depth, min_height))
-        size_variations = self._generate_size_variations(obj_def)  
+        size_variations = self._generate_size_variations(obj_def, bathroom_size)  
         if obj_def["name"] == "Washing Machine":
             min_width, max_width, min_depth, max_depth, min_height, max_height = obj_def["size_range"]
             size_variations.append((min_width, min_depth, min_height)) 
@@ -121,11 +120,12 @@ class DefaultPlacementStrategy(PlacementStrategy):
     def __str__(self):
         return "DefaultPlacementStrategy"
     
-    def _generate_size_variations(self, obj_def):
+    def _generate_size_variations(self, obj_def, bathroom_size):
         """Generate size variations within min/max range using 5cm increments."""
         min_width, max_width, min_depth, max_depth, min_height, max_height = obj_def["size_range"]
         optimal_width, optimal_depth, optimal_height = obj_def["optimal_size"]
-        
+        room_width, room_depth, room_height = bathroom_size 
+        max_size = room_width* room_depth*0.4
         # Start with optimal size
         variations = [(optimal_width, optimal_depth, optimal_height)]
         
@@ -137,14 +137,18 @@ class DefaultPlacementStrategy(PlacementStrategy):
         current_depth = optimal_depth
         
         # Generate smaller variations
-        while True:
+        while True :
             # Decrease by 5cm
             current_width -= 5
             # Maintain proportion for depth
             current_depth = int(current_width * aspect_ratio)
-            
+            if current_depth < min_depth:
+                current_depth = min_depth
             # Check if we've reached minimum size
             if current_width < min_width or current_depth < min_depth:
+                break
+
+            if current_width*current_depth > max_size:
                 break
                 
             variations.append((current_width, current_depth, optimal_height))
@@ -161,11 +165,27 @@ class DefaultPlacementStrategy(PlacementStrategy):
             current_depth = int(current_width * aspect_ratio)
             
             # Check if we've reached maximum size
-            if current_width > max_width or current_depth > max_depth:
+            if current_width > max_width or current_depth > max_depth or current_width*current_depth > max_size:
                 break
                 
             variations.append((current_width, current_depth, optimal_height))
             #variations.append((current_depth, current_width, optimal_height))
+        # Generate asymetral variations
+        current_width = optimal_width
+        current_depth = optimal_depth
+        if obj_def["name"].lower() == "shower":
+            # add assymetral variations, increase only one side
+            while True:
+                # Increase by 5cm
+                current_width += 5
+                
+                # Check if we've reached maximum size
+                if current_width > max_width:
+                    break
+                    
+                variations.append((current_width, optimal_depth, optimal_height))
+                #variations.append((current_depth, current_width, optimal_height))
+
         
         return variations
     
@@ -173,8 +193,8 @@ class DefaultPlacementStrategy(PlacementStrategy):
                             bathroom_size, placed_objects, windows_doors, num_options, door_walls):
         """Generate positions for objects that must be in a corner."""
         options = []
-        room_width, room_depth, room_height = bathroom_size
         
+        room_width, room_depth, room_height = bathroom_size
         # Try each corner
         corner_positions = [
             (0, 0),  # Top-left
@@ -186,50 +206,49 @@ class DefaultPlacementStrategy(PlacementStrategy):
         corner_positions_dict = {
             (0, 0): "top-left",
             (room_width - obj_depth, 0): "bottom-left",
+            (room_width - obj_width, 0): "bottom-left",
             (0, room_depth - obj_width): "top-right",
-            (room_width - obj_depth, room_depth - obj_width): "bottom-right"
+            (0, room_depth - obj_depth): "top-right",
+            (room_width - obj_depth, room_depth - obj_width): "bottom-right",
+            (room_width - obj_width, room_depth - obj_depth): "bottom-right"
+        }
+        corner_positions_dict_sizes = {
+            (0, 0): (obj_width, obj_depth),
+            (0,0): (obj_depth, obj_width),
+            (room_width - obj_depth, 0): (obj_width, obj_depth),
+            (room_width - obj_width, 0): (obj_depth, obj_width),
+            (0, room_depth - obj_width): (obj_width, obj_depth),
+            (0, room_depth - obj_depth): (obj_depth, obj_width),
+            (room_width - obj_depth, room_depth - obj_width): (obj_width, obj_depth),
+            (room_width - obj_width, room_depth - obj_depth): (obj_depth, obj_width)
         }
         
 
-        for x, y in corner_positions:
+        for x, y  in corner_positions_dict_sizes:
             shadow = obj_def["shadow_space"]
             # can switch between width and depth
             _,_,_,_,shadow_top, shadow_left, shadow_right, shadow_bottom = convert_values((x, y, obj_width, obj_depth, obj_height), shadow, corner_positions_dict[(x, y)])
             shadow = [shadow_top, shadow_left, shadow_right, shadow_bottom]
-            obj_width_TEMP, obj_depth_TEMP = obj_width, obj_depth
-            temp_y = y
-            if corner_positions_dict[(x, y)] == "right" or corner_positions_dict[(x, y)] == "left" :
-                obj_width_TEMP, obj_depth_TEMP = obj_depth, obj_width
-
-                if corner_positions_dict[(x, y)] == "right":
-                    diff = obj_width - obj_depth
-                    temp_y = y + diff
-            print("obj_width_TEMP", obj_width_TEMP)
-            print("obj_depth_TEMP", obj_depth_TEMP)
-            print("obj_x", x)
-            print("temp_y", temp_y)
-
-            for i in range(2):
-                obj_width_TEMP, obj_depth_TEMP = obj_depth_TEMP, obj_width_TEMP
-                if is_valid_placement((x, temp_y, obj_width_TEMP, obj_depth_TEMP, obj_height), placed_objects, shadow, room_width, room_depth, door_walls):
-                    if not windows_doors_overlap(windows_doors, x, temp_y, 0,obj_width_TEMP, obj_depth_TEMP, obj_height, room_width, room_depth, shadow,obj_type):
+            width, depth = corner_positions_dict_sizes[(x, y)]
+            if is_valid_placement((x, y, width, depth, obj_height,corner_positions_dict[(x, y)]), placed_objects, shadow, room_width, room_depth, door_walls):
+                    if not windows_doors_overlap(windows_doors, x, y, 0,width, depth, obj_height, room_width, room_depth, shadow,obj_type):
                         
                         # Create a BathroomObject instance
                         bathroom_obj = BathroomObject(
                             object_type=obj_type,
                             
-                            width=obj_width_TEMP,
-                            depth=obj_depth_TEMP,
+                            width=width,
+                            depth=depth,
                             height=obj_height,
                             shadow=shadow,
-                            position=(x, temp_y),
+                            position=(x, y),
                             wall=corner_positions_dict[(x, y)]
                             
                         )
                         
                         options.append({
                             "object": bathroom_obj,
-                            "position": (x, temp_y, obj_width_TEMP, obj_depth_TEMP, obj_height, shadow)
+                            "position": (x, y, width, depth, obj_height, shadow)
                         })
                         
 
@@ -398,7 +417,7 @@ class DefaultPlacementStrategy(PlacementStrategy):
                 
             _,_,_,_,shadow_top, shadow_left, shadow_right, shadow_bottom = convert_values((x, y, obj_width_TEMP, obj_depth_TEMP, obj_height), shadow, wall)
             shadow = [shadow_top, shadow_left, shadow_right, shadow_bottom]
-            if is_valid_placement((x, y, obj_width_TEMP, obj_depth_TEMP, obj_height), placed_objects, shadow, room_width, room_depth, door_walls):
+            if is_valid_placement((x, y, obj_width_TEMP, obj_depth_TEMP, obj_height,wall), placed_objects, shadow, room_width, room_depth, door_walls):
                 if not windows_doors_overlap(windows_doors, x, y, 0, obj_width_TEMP, obj_depth_TEMP, obj_height, room_width, room_depth, shadow,obj_type):
                     # Create a BathroomObject instance
                     bathroom_obj = BathroomObject(

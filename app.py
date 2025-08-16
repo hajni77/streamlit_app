@@ -13,10 +13,10 @@ from supabase import create_client, Client
 import psycopg2
 import gc
 from st_supabase_connection import SupabaseConnection
-
+from algorithms.available_space import identify_available_space
 from layout_ml import LayoutPreferenceModel, get_feature_importance
 from layout_rl import LayoutRLModel
-from utils.helpers import get_required_area, identify_available_space, mark_inaccessible_spaces, check_valid_room, check_overlap
+from utils.helpers import get_required_area, mark_inaccessible_spaces, check_valid_room, check_overlap, save_data
 from optimization import compare_room_layouts
 from optimization.scoring import BathroomScoringFunction
 from matplotlib import patches
@@ -29,6 +29,7 @@ from visualization import Visualizer2D, draw_door, Visualizer3D
 from validation import get_constraint_validator
 from algorithms.beam_search import BeamSearch
 from models.layout import Layout
+
 
 # Load environment variables from .env
 load_dotenv()
@@ -47,7 +48,7 @@ st.set_page_config(
 )
 
 # Function to display layouts as 2D floorplans with selection buttons
-def display_layout_selection(layouts, room_width, room_depth, room_height, windows_doors, layout_metrics=None, ml_recommended=None, rl_recommended=None):
+def display_layout_selection(layouts, all_scores, room_width, room_depth, room_height, windows_doors, layout_metrics=None, ml_recommended=None, rl_recommended=None):
     """
     Display multiple layouts as 2D floorplans with selection buttons.
     
@@ -97,6 +98,7 @@ def display_layout_selection(layouts, room_width, room_depth, room_height, windo
             
             # Get the current layout data
             layout_data = layouts[layout_idx]
+            
             if isinstance(layout_data, tuple) and len(layout_data) >= 3:
                 bathroom, score, detailed_scores = layout_data
             else:
@@ -116,10 +118,17 @@ def display_layout_selection(layouts, room_width, room_depth, room_height, windo
             with cols[col_idx]:
                 
                 temp_visualizer = Visualizer2D(bathroom)
+                temp_3d_visualizer = Visualizer3D(bathroom)
                 fig = temp_visualizer.draw_2d_floorplan()
+                #available_spaces_dict = identify_available_space(bathroom.objects, (room_width, room_depth), grid_size=1, windows_doors=bathroom.windows_doors)
+                # print available space dict to file
+                # with open("available_space_dict.json", "w") as f:
+                #     json.dump(available_spaces_dict, f)
+                #fig_space = temp_visualizer.visualize_available_spaces(available_spaces_dict)
                 
                 # Display the 2D floorplan
                 st.pyplot(fig)
+                #st.pyplot(fig_space)
                 
                 # Display layout number and score
                 st.markdown(f"**Layout {layout_idx+1}**")
@@ -177,12 +186,65 @@ def display_layout_selection(layouts, room_width, room_depth, room_height, windo
                                     st.markdown(f"**{formatted_name}**: {score_value}")
                     else:
                         st.info("No detailed scores available for this layout.")
-                
+
                 # Selection button
                 if st.button(f"Select Layout {layout_idx+1}", key=f"select_layout_{layout_idx}"):
-                    selected_layout_index = layout_idx
-                    print(selected_layout_index)
-                    st.session_state.selected_layout_index = selected_layout_index
+                    st.session_state.selected_layout_index = layout_idx
+                    st.session_state.positions = layout_data
+                    st.session_state.placed_objects = layout_data.bathroom.objects
+                    st.session_state.best_layout_score = score
+                    st.session_state.total_score = score
+                    st.session_state.detailed_scores = detailed_scores
+ 
+                    # # Add this selection to both models' training data
+                    # # Train ML model
+                    # st.session_state.ml_model.add_training_example(
+                    #     layout_idx, 
+                    #     st.session_state.all_layouts, 
+                    #     st.session_state.layout_metrics
+                    # )
+                    # st.session_state.ml_update_needed = True
+                                    
+                    # # Train RL model
+                    # try:
+                    #     # Extract detailed scores from all_scores
+                    #     # all_scores format: [(layout, score, detailed_scores), ...]
+                    #     detailed_scores = [item[2] for item in st.session_state.all_scores]
+                                        
+                    #     st.session_state.rl_model.add_training_example(
+                    #         layout_idx, 
+                    #         st.session_state.all_layouts, 
+                    #         [item[1] for item in st.session_state.all_scores],  # Extract scores
+                    #         detailed_scores,
+                    #         st.session_state.layout_metrics
+                    #     )
+                    #     st.session_state.rl_update_needed = True
+                    # except Exception as e:
+                    #     st.warning(f"RL model training failed: {e}")
+                    #     st.session_state.rl_update_needed = False
+                                    
+                    # Regenerate visualizations for the selected layout
+
+                    fig_3d = temp_3d_visualizer.visualize_room_with_shadows_3d()
+                    st.session_state.fig = fig_3d
+                                    
+                    # # Save 3D figure to bytes for download
+                    buf = io.BytesIO()
+                    fig_3d.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+                    buf.seek(0)
+                    st.session_state.fig_bytes = buf.getvalue()
+                                    
+                    # Create 2D floorplan
+                    fig_2d = temp_visualizer.draw_2d_floorplan()
+                    st.session_state.fig2 = fig_2d
+                                        
+                    # Save 2D figure to bytes for download
+                    buf2 = io.BytesIO()
+                    fig_2d.savefig(buf2, format='png', dpi=300, bbox_inches='tight')
+                    buf2.seek(0)
+                    st.session_state.fig2_bytes = buf2.getvalue()
+                                    
+                    st.rerun()
     
     return selected_layout_index
 
@@ -384,6 +446,8 @@ else:
         st.session_state.room_height = 280
     if 'saved_reviews' not in st.session_state:
         st.session_state.saved_reviews = []
+    if 'windows_doors_list' not in st.session_state:
+        st.session_state.windows_doors_list = []
 
     # Room Setup Tab Content
     with tab1:
@@ -498,7 +562,7 @@ else:
                 )
             
             # Door distance from corner
-            x = st.slider(
+            slide = st.slider(
                 "Distance from Corner (cm):", 
                 min_value=1, 
                 max_value=min(room_width, room_depth) - 50,
@@ -521,6 +585,79 @@ else:
                 door_hinge_options,
                 help="Side where the door hinges are located (left or right)"
             )
+            
+            
+            st.session_state.door_width = door_width
+            st.session_state.door_height = door_height
+            st.session_state.selected_door_type = selected_door_type
+            st.session_state.selected_door_way = selected_door_way
+            st.session_state.selected_door_hinge = selected_door_hinge
+            # Add buttons to add doors/windows or remove them
+            add_door_col1, add_door_col2 = st.columns([1, 1])
+            x = slide
+            y = x
+            
+            # Adjust door position based on selected type
+            if selected_door_type == "top":
+                y = x
+                x = 0
+                if y+door_width > room_depth:
+                    y = room_depth - door_width
+            elif selected_door_type == "bottom":
+                y = x
+                x = room_width
+                if y+door_width > room_depth:
+                    y = room_depth - door_width
+            elif selected_door_type == "right":
+                y = room_depth 
+                if x+door_width > room_width:
+                    x = room_width - door_width
+            elif selected_door_type == "left":
+                if x+door_width > room_width:
+                    x = room_width - door_width
+            st.session_state.x = x
+            st.session_state.y = y
+            with add_door_col1:
+                if st.button("➕ Add Door", help="Add this door to your bathroom layout"):
+                    new_door = WindowsDoors(f"door{len(st.session_state.windows_doors_list) + 1}", 
+                                          selected_door_type,  
+                                          (x, y), 
+                                          door_width, 
+                                          5,  # default door depth value
+                                          door_height, 
+                                          selected_door_hinge, 
+                                          selected_door_way)
+                    st.session_state.windows_doors_list.append(new_door)
+                    st.toast(f"Door {len(st.session_state.windows_doors_list)} added successfully!", icon="✅")
+            
+            with add_door_col2:
+                if st.button("➕ Add Window", help="Add a window to your bathroom layout"):
+                    new_window = WindowsDoors(f"window{len(st.session_state.windows_doors_list) + 1}", 
+                                            selected_door_type,  
+                                            (x, y), 
+                                            door_width, 
+                                            5,  # default window depth value
+                                            door_height // 2,  # windows are typically shorter
+                                            "",  # no hinge for windows
+                                            "")  # no swing direction for windows
+                    st.session_state.windows_doors_list.append(new_window)
+                    st.toast(f"Window {len(st.session_state.windows_doors_list)} added successfully!", icon="✅")
+                    
+            # Display currently added doors and windows
+            if st.session_state.windows_doors_list:
+                st.markdown("### Added Doors & Windows")
+                doors_windows_col1, doors_windows_col2 = st.columns([3, 1])
+                
+                with doors_windows_col1:
+                    for i, door_window in enumerate(st.session_state.windows_doors_list):
+                        is_door = door_window.name.startswith("door")
+                        st.markdown(f"**{i+1}. {door_window.name}** - {door_window.wall} wall at position {door_window.position}")
+                
+                with doors_windows_col2:
+                    if st.button("🗑️ Clear All", help="Remove all doors and windows"):
+                        st.session_state.windows_doors_list = []
+                        st.toast("All doors and windows removed", icon="✅")
+                        st.rerun()
         
         with right_col:
             # Room and door visualization
@@ -530,7 +667,7 @@ else:
             with im_col1:
                 # MINDEN TÖRÖLHETŐ
     
-                fig = draw_door(selected_door_type, selected_door_way, selected_door_hinge, x, door_width, door_height, room_width, room_depth)
+                fig = draw_door(st.session_state.windows_doors_list, room_width, room_depth)
                 plt.tight_layout()
                 st.pyplot(fig, use_container_width=True)
                 plt.close(fig)
@@ -560,7 +697,10 @@ else:
                     st.session_state.generate_clicked = True
                     st.session_state.selected_layout_index = None
 
-    windows_doors = []
+    # Initialize windows and doors list if it doesn't exist in session state
+    if 'windows_doors_list' not in st.session_state:
+        st.session_state.windows_doors_list = []
+        
     isTrue = False
     positions = []
     
@@ -620,13 +760,20 @@ else:
             elif selected_door_type == "left":
                 if x+door_width > room_width:
                     x = room_width - door_width
-            #default door depth value
-            door_depth = 5  
+                    
             # Map selected objects to internal names
             selected_objects = [objects_map[obj] for obj in selected_object]
             st.session_state.selected_objects = selected_objects
-            windows_doors = WindowsDoors("door1", selected_door_type,  (x, y), door_width, door_depth, door_height, selected_door_hinge, selected_door_way)
+            
+            # If no doors/windows were added using the + button, add a default door
+            if not st.session_state.windows_doors_list:
+                default_door = WindowsDoors("door1", selected_door_type, (x, y), door_width, 5, door_height, selected_door_hinge, selected_door_way)
+                st.session_state.windows_doors_list.append(default_door)
+                
+            # Use all doors/windows from the list
+            windows_doors = st.session_state.windows_doors_list
             st.session_state.windows_doors = windows_doors
+            
             # Create room objects
             objects = [BathroomObject(obj) for obj in selected_objects]
             room = Bathroom(room_width, room_depth, room_height, objects, windows_doors, OBJECT_TYPES)
@@ -1009,6 +1156,7 @@ else:
                     # Display layouts as 2D floorplans with selection buttons
                     selected_layout_index = display_layout_selection(
                         st.session_state.all_layouts,
+                        st.session_state.all_scores,
                         room_width,
                         room_depth,
                         room_height,
@@ -1018,83 +1166,84 @@ else:
                         rl_recommended=rl_recommended
                     )
                     
-                    # Handle layout selection
-                    if selected_layout_index is not None:
-                        print(selected_layout_index)
-                        layout, score, detailed_scores = st.session_state.all_layouts[selected_layout_index]
-                        st.session_state.selected_layout_index = selected_layout_index
-                        st.session_state.positions = layout
-                        st.session_state.placed_objects = [pos[5] for pos in layout]
-                        st.session_state.best_layout_score = score
-                        st.session_state.total_score = score
-                        st.session_state.detailed_scores = detailed_scores
+            # # Handle layout selection
+            # if selected_layout_index is not None:
+            #             print(selected_layout_index)
+            #             layout = st.session_state.all_layouts[selected_layout_index]
+            #             print(type(layout))
+            #             st.session_state.selected_layout_index = selected_layout_index
+            #             st.session_state.positions = layout.bathroom
+            #             st.session_state.placed_objects = layout.bathroom.objects
+            #             st.session_state.best_layout_score = layout.score
+            #             st.session_state.total_score = layout.score
+            #             st.session_state.detailed_scores = layout.score_breakdown
+            #             print(type(st.session_state.placed_objects))
+            #             # Add this selection to both models' training data
+            #             # Train ML model
+            #             if hasattr(st.session_state, 'ml_model'):
+            #                 try:
+            #                     st.session_state.ml_model.add_training_example(
+            #                         selected_layout_index, 
+            #                         st.session_state.all_layouts, 
+            #                         st.session_state.layout_scores, 
+            #                         st.session_state.layout_metrics
+            #                     )
+            #                     st.session_state.ml_update_needed = True
+            #                 except Exception as e:
+            #                     st.warning(f"ML model training failed: {e}")
                         
-                        # Add this selection to both models' training data
-                        # Train ML model
-                        if hasattr(st.session_state, 'ml_model'):
-                            try:
-                                st.session_state.ml_model.add_training_example(
-                                    selected_layout_index, 
-                                    st.session_state.all_layouts, 
-                                    st.session_state.layout_scores, 
-                                    st.session_state.layout_metrics
-                                )
-                                st.session_state.ml_update_needed = True
-                            except Exception as e:
-                                st.warning(f"ML model training failed: {e}")
-                        
-                        # Train RL model
-                        if hasattr(st.session_state, 'rl_model'):
-                            try:
-                                # Extract detailed scores from all_scores
-                                # all_scores format: [(layout, score, detailed_scores), ...]
-                                detailed_scores_list = [item[2] for item in st.session_state.layout_scores]
+            #             # Train RL model
+            #             if hasattr(st.session_state, 'rl_model'):
+            #                 try:
+            #                     # Extract detailed scores from all_scores
+            #                     # all_scores format: [(layout, score, detailed_scores), ...]
+            #                     detailed_scores_list = [item[2] for item in st.session_state.layout_scores]
                                 
-                                st.session_state.rl_model.add_training_example(
-                                    selected_layout_index, 
-                                    st.session_state.all_layouts, 
-                                    [item[1] for item in st.session_state.layout_scores],  # Extract scores
-                                    detailed_scores_list,
-                                    st.session_state.layout_metrics
-                                )
-                                st.session_state.rl_update_needed = True
-                            except Exception as e:
-                                st.warning(f"RL model training failed: {e}")
-                                st.session_state.rl_update_needed = False
+            #                     st.session_state.rl_model.add_training_example(
+            #                         selected_layout_index, 
+            #                         st.session_state.all_layouts, 
+            #                         [item[1] for item in st.session_state.layout_scores],  # Extract scores
+            #                         detailed_scores_list,
+            #                         st.session_state.layout_metrics
+            #                     )
+            #                     st.session_state.rl_update_needed = True
+            #                 except Exception as e:
+            #                     st.warning(f"RL model training failed: {e}")
+            #                     st.session_state.rl_update_needed = False
                         
-                        # Regenerate visualizations for the selected layout
-                        bathroom = Bathroom(room_width, room_depth, room_height, layout, windows_doors)
+            #             # Regenerate visualizations for the selected layout
+            #             bathroom = Bathroom(room_width, room_depth, room_height, layout, windows_doors)
                         
-                        # Create 3D visualization
-                        visualizer3d = Visualizer3D(room_width, room_depth, room_height)
-                        fig_3d = visualizer3d.draw_3d_room(layout, windows_doors)
-                        st.session_state.fig = fig_3d
+            #             # Create 3D visualization
+            #             visualizer3d = Visualizer3D(room_width, room_depth, room_height)
+            #             fig_3d = visualizer3d.draw_3d_room(st.session_state.placed_objects, windows_doors)
+            #             st.session_state.fig = fig_3d
                         
-                        # Save 3D figure to bytes for download
-                        buf = io.BytesIO()
-                        fig_3d.savefig(buf, format='png', dpi=300, bbox_inches='tight')
-                        buf.seek(0)
-                        st.session_state.fig_bytes = buf.getvalue()
+            #             # Save 3D figure to bytes for download
+            #             buf = io.BytesIO()
+            #             fig_3d.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+            #             buf.seek(0)
+            #             st.session_state.fig_bytes = buf.getvalue()
                         
-                        # Create 2D floorplan
-                        visualizer2d = Visualizer2D(bathroom)
-                        fig_2d = visualizer2d.draw_2d_floorplan()
-                        st.session_state.fig2 = fig_2d
+            #             # Create 2D floorplan
+            #             visualizer2d = Visualizer2D(bathroom)
+            #             fig_2d = visualizer2d.draw_2d_floorplan()
+            #             st.session_state.fig2 = fig_2d
                         
-                        # Save 2D figure to bytes for download
-                        buf2 = io.BytesIO()
-                        fig_2d.savefig(buf2, format='png', dpi=300, bbox_inches='tight')
-                        buf2.seek(0)
-                        st.session_state.fig2_bytes = buf2.getvalue()
+            #             # Save 2D figure to bytes for download
+            #             buf2 = io.BytesIO()
+            #             fig_2d.savefig(buf2, format='png', dpi=300, bbox_inches='tight')
+            #             buf2.seek(0)
+            #             st.session_state.fig2_bytes = buf2.getvalue()
                         
-                        st.rerun()
+                        #st.rerun()
             
             # Show the selected layout if one has been chosen
             if st.session_state.selected_layout_index is not None:
                 st.success(f"You selected Layout {st.session_state.selected_layout_index + 1} with score: {st.session_state.best_layout_score:.1f}/100")
                 
                 # Add a button to go back to layout selection
-                if st.button("Choose a Different Layout"):
+                if st.button("Change Layout Selection", type="secondary"):
                     st.session_state.selected_layout_index = None
                     st.rerun()
             
@@ -1140,25 +1289,25 @@ else:
                     st.session_state.generate_clicked = False
     
                 
-                # Section 2: Available Spaces Analysis side by side
-                st.markdown("<h4 class='section-header'>Available Space Analysis</h4>", unsafe_allow_html=True)
-                col0, col1 ,col2,col3 = st.columns([1,2,2,1])
+                # # Section 2: Available Spaces Analysis side by side
+                # st.markdown("<h4 class='section-header'>Available Space Analysis</h4>", unsafe_allow_html=True)
+                # col0, col1 ,col2,col3 = st.columns([1,2,2,1])
                 
-                with col1:
-                    st.markdown(f"<p><b>With Shadow</b> ({len(st.session_state.available_spaces_dict['with_shadow'])} spaces)</p>", unsafe_allow_html=True)
-                    st.pyplot(st.session_state.figvis_with_shadow)
+                # with col1:
+                #     st.markdown(f"<p><b>With Shadow</b> ({len(st.session_state.available_spaces_dict['with_shadow'])} spaces)</p>", unsafe_allow_html=True)
+                #     st.pyplot(st.session_state.figvis_with_shadow)
                 
-                with col2:
-                    st.markdown(f"<p><b>Without Shadow</b> ({len(st.session_state.available_spaces_dict['without_shadow'])} spaces)</p>", unsafe_allow_html=True)
-                    st.pyplot(st.session_state.figvis_without_shadow)
+                # with col2:
+                #     st.markdown(f"<p><b>Without Shadow</b> ({len(st.session_state.available_spaces_dict['without_shadow'])} spaces)</p>", unsafe_allow_html=True)
+                #     st.pyplot(st.session_state.figvis_without_shadow)
                 
                 # Object placement summary
                 st.markdown("<h3 class='section-header'>Fixture Placement Summary</h3>", unsafe_allow_html=True)
                 
                 # Create a table of placed objects
-                if st.session_state.positions:
+                if st.session_state.placed_objects:
                     object_data = []
-                    for pos in st.session_state.positions:
+                    for pos in st.session_state.placed_objects:
                         if len(pos) >= 6:
                             object_data.append({
                                 "Fixture": pos[5],
@@ -1521,12 +1670,12 @@ else:
                 st.markdown("<h3 class='section-header'>Layout Quality Score</h3>", unsafe_allow_html=True)
             
             
-                total_score = st.session_state.layout_metrics[selected_layout_index]['score']
+                total_score = st.session_state.layout_metrics[st.session_state.selected_layout_index]['score']
                 # only 3 decimal places
                 total_score = round(total_score, 3)
                 st.markdown(f"<div style='text-align: left; font-size: 3rem; font-weight: bold; color: {'green' if total_score > 70 else 'orange' if total_score > 40 else 'red'};'>{total_score}/100</div>", unsafe_allow_html=True)
                 # Display detailed scores
-                detailed_scores = st.session_state.layout_metrics[selected_layout_index]['detailed_scores']
+                detailed_scores = st.session_state.layout_metrics[st.session_state.selected_layout_index]['detailed_scores']
                 for category, score in detailed_scores.items():
                     st.markdown(f"**{category}**: {score}/10")
 
@@ -1667,6 +1816,8 @@ else:
     with tab4:
         if not st.session_state.get('generated', False):
             st.info("Please generate a floorplan first in the Room Setup tab")
+        elif st.session_state.selected_layout_index is None:
+            st.info("Please select a layout in the Visualization tab before submitting a review")
         else:
             st.markdown("<h2 class='section-header'>Review & Save Your Design</h2>", unsafe_allow_html=True)
             
@@ -1716,7 +1867,7 @@ else:
                 if submit_button:
                     calculated_reward = st.session_state.total_score
                     with st.spinner("Saving your review..."):
-                        success = save_data(
+                        success = save_data(supabase,
                             (room_width, room_depth, room_height), 
                             st.session_state.positions, 
                             st.session_state.windows_doors, 
@@ -1773,6 +1924,25 @@ else:
                 else:
                     st.info("2D floorplan visualization not available")
                     download_button_2d = False
+                    
+                # Display 3D visualization as well
+                st.markdown("<p><b>3D Room Layout</b></p>", unsafe_allow_html=True)
+                if 'fig' in st.session_state:
+                    st.pyplot(st.session_state.fig)
+                    if 'fig_bytes' in st.session_state and st.session_state.fig_bytes is not None:
+                        download_button_3d = st.download_button(
+                            label="Download 3D View",
+                            data=st.session_state.fig_bytes,
+                            file_name="bathroom_3d_view.png",
+                            mime="image/png",
+                            key="download_3d_review"
+                        )
+                    else:
+                        st.warning("3D view download not available")
+                        download_button_3d = False
+                else:
+                    st.info("3D visualization not available")
+                    download_button_3d = False
             
             with review_col3:
                 # Layout quality score
@@ -1784,7 +1954,9 @@ else:
                     # only 3 decimal places
                     total_score = round(total_score, 3)
                     st.markdown(f"<div style='text-align: left; font-size: 3rem; font-weight: bold; color: {'green' if total_score > 70 else 'orange' if total_score > 40 else 'red'};'>{total_score}</div>", unsafe_allow_html=True)
-                    
+                    positions = [i['position'] for i in st.session_state.positions.bathroom.objects]
+                    placed_objects = st.session_state.positions.bathroom.get_placed_objects_name()
+                    windows_doors = [st.session_state.windows_doors.position,st.session_state.windows_doors.width,st.session_state.windows_doors.height,st.session_state.windows_doors.depth,st.session_state.windows_doors.hinge,st.session_state.windows_doors.way,st.session_state.windows_doors.wall]
                     # Display detailed scores
                     detailed_scores = st.session_state.detailed_scores
                     for category, score in detailed_scores.items():
@@ -1795,8 +1967,9 @@ else:
                         "room_width": room_width,
                         "room_depth": room_depth,
                         "room_height": room_height,
-                        "positions": st.session_state.positions,
-                        "windows_doors": st.session_state.windows_doors,
+                        "objects": placed_objects,
+                        "positions": positions,
+                        "windows_doors": windows_doors,
                         "review": review,
                         "is_enough_path": is_enough_path,
                         "space": space,

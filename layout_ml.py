@@ -77,7 +77,7 @@ class LayoutPreferenceModel:
             
         return features
     
-    def add_training_example(self, selected_layout_idx, all_layouts, all_scores, layout_metrics):
+    def add_training_example(self, selected_layout_idx, all_layouts,  layout_metrics):
         """
         Add a training example based on user selection.
         
@@ -89,7 +89,8 @@ class LayoutPreferenceModel:
         """
         # Extract features for all layouts
         features_list = []
-        for i, (layout, score, detailed_scores) in enumerate(all_scores):
+        print(type(all_layouts))
+        for i, (layout, score, detailed_scores) in enumerate(all_layouts):
             features = self.extract_features(layout, detailed_scores, layout_metrics[i])
             features['layout_idx'] = i
             features['overall_score'] = score

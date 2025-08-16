@@ -355,7 +355,15 @@ def visualize_room_with_available_spaces(placed_objects, room_sizes, available_s
     ax.add_patch(patches.Rectangle((0, 0), room_depth, room_width, fill=False, edgecolor='black', linewidth=2))
     # Draw placed objects
     for obj in placed_objects:
-        x, y, width, depth, height, *_ = obj
+        name = obj['object'].name
+        width = obj['object'].width
+        depth = obj['object'].depth
+        height = obj['object'].height
+        shadow = obj['object'].shadow
+        position = obj['object'].position
+        wall = obj['object'].wall
+        x,y = position
+        shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
         ax.add_patch(patches.Rectangle((y, x), width, depth, fill=True, color='blue', alpha=0.7))
     # Draw available spaces WITHOUT shadow (green)
     if not shadow:
@@ -382,6 +390,8 @@ def visualize_room_with_available_spaces(placed_objects, room_sizes, available_s
     ax.legend(handles=handles)
     ax.set_aspect('equal')
     ax.invert_yaxis()
+    # show fig in new window
+
     return fig
 
 

@@ -3,9 +3,10 @@ import numpy as np
 from mpl_toolkits.mplot3d import Axes3D
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 from utils.helpers import check_which_wall, convert_values
+from models.bathroom import Bathroom
 
 class Visualizer3D:
-    def __init__(self, room, room_width, room_depth, room_height=250):
+    def __init__(self, bathroom:Bathroom):
         """
         Initialize the 3D visualizer with room dimensions.
         
@@ -14,24 +15,272 @@ class Visualizer3D:
             room_depth: Depth of the room in cm
             room_height: Height of the room in cm (default 250cm)
         """
-        self.room_width = room_width
-        self.room_depth = room_depth
-        self.room_height = room_height
-        self.bathroom = room
+        self.room_width = bathroom.width
+        self.room_depth = bathroom.depth
+        self.room_height = bathroom.height
+        self.objects = bathroom.objects
+        self.windows_doors = bathroom.windows_doors
+        self.current_elev = 30
+        self.current_azim = 30
         
         # Color mapping for different object types
         self.color_map = {
-            'toilet': 'lightblue',
-            'sink': 'lightgreen',
-            'shower': 'lightyellow',
-            'bathtub': 'lightpink',
-            'bidet': 'lightgray',
-            'cabinet': 'tan',
-            'door': 'brown',
-            'window': 'skyblue'
+            "toilet": "blue",
+            "sink": "green",
+            "shower": "red",
+            "bathtub": "purple",
+            "washing machine": "orange",
+            "double sink": "brown",
+            "cabinet": "pink",
+            "washing dryer": "orange",
+            "washing machine dryer": "orange",
+            "asymmetrical bathtub": "purple",
+            "toilet bidet": "blue",
+            "bathtub": "purple",
         }
-    
-    def draw_3d_room(self, objects, doors=None):
+
+
+
+    def visualize_door_windows(self, ax):
+        # Ensure all parameters are of the correct type
+        
+        parapet = 0
+        name = self.windows_doors.name
+        room_width = self.room_width
+        room_depth = self.room_depth
+        wall = self.windows_doors.wall
+        width = self.windows_doors.width
+        height = self.windows_doors.height
+        x,y = self.windows_doors.position
+        depth = self.windows_doors.depth
+        # Draw windows and doors
+            
+            # Calculate vertices based on wall placement
+        if wall == "top":
+            vertices = [
+                    [0, y, parapet],
+                    [0, y + width, parapet],
+                    [0, y + width, parapet + height],
+                    [0, y, parapet + height]
+            ]
+                
+            # 3D Shadow as a box on the floor
+            if 'door' in name.lower():
+                shadow_vertices = [
+                        # Bottom rectangle
+                    [0, y, parapet],
+                    [0, y + width, parapet],
+                    [0, y + width, parapet + height],
+                    [0, y, parapet + height],
+                        # Top rectangle (slightly raised)
+                    [width, y, parapet],
+                    [width, y + width, parapet],
+                    [width, y + width, parapet + height],
+                    [width, y, parapet + height],
+                    ]
+            
+        elif wall == "bottom":
+            vertices = [
+                    [room_width, y, parapet],
+                    [room_width, y + width, parapet],
+                    [room_width, y + width, parapet + height],
+                    [room_width, y, parapet + height]
+            ]
+                
+            # 3D Shadow as a box on the floor
+            if 'door' in name.lower():
+                # Calculate shadow vertices, 75 cm into the room
+                shadow_vertices = [
+                    [room_width, y, parapet],
+                    [room_width, y + width, parapet],
+                    [room_width, y + width, parapet + height],
+                    [room_width, y, parapet + height],
+                    [room_width - width, y, parapet],                 # Bottom-left
+                    [room_width - width, y + width, parapet],         # Top-left
+                    [room_width - width, y + width, parapet + height], # Top-right
+                    [room_width - width, y, parapet + height]           # Bottom-right
+                    ]
+            
+        elif wall == "right":
+            vertices = [
+                    [x, room_depth,parapet],  # Top-left corner
+                    [x + width, room_depth, parapet],  # Top-right corner
+                    [x + width, room_depth , parapet+height],  # Bottom-right corner
+                    [x, room_depth,parapet+height]  # Bottom-left corner
+                    ]
+                    
+            # 3D Shadow as a box on the floor
+            if 'door' in name.lower():
+                shadow_vertices = [
+                            [x, room_depth,parapet],  # Top-left corner
+                            [x + width, room_depth, parapet],  # Top-right corner
+                            [x + width, room_depth , parapet+height],  # Bottom-right corner
+                            [x, room_depth,parapet+height] , # Bottom-left corner
+                            [x, room_depth-width,parapet],  # Top-left corner
+                            [x + width, room_depth-width, parapet],  # Top-right corner
+                            [x + width, room_depth-width , parapet+height],  # Bottom-right corner
+                            [x, room_depth-width,parapet+height]  # Bottom-left corner
+                        ]
+
+        elif wall == "left":
+            vertices =  [
+                        [x, 0,parapet],  # Top-left corner
+                        [x + width, 0, parapet],  # Top-right corner
+                        [x + width, 0 , parapet+height],  # Bottom-right corner
+                        [x,0,parapet+height]  # Bottom-left corner
+                    ]
+                
+            # 3D Shadow as a box on the floor
+            if 'door' in name.lower():
+                shadow_vertices = [
+                        [x, 0,parapet],  # Top-left corner
+                        [x + width, 0, parapet],  # Top-right corner
+                        [x + width, 0 , parapet+height],  # Bottom-right corner
+                        [x, 0,parapet+height] , # Bottom-left corner
+                        
+                        [x, width,parapet],  # Top-left corner
+                        [x + width,width, parapet],  # Top-right corner
+                        [x + width, width , parapet+height],  # Bottom-right corner
+                        [x, width,parapet+height]  # Bottom-left corner
+                        ]
+                    
+        # Draw the window or door
+        color = 'skyblue' if 'window' in name.lower() else 'brown'
+        alpha = 0.5 if 'window' in name.lower() else 1.0
+        wall_feature = Poly3DCollection([vertices], color=color, alpha=alpha, edgecolor='black')
+        ax.add_collection3d(wall_feature)
+        # Draw the 3D shadow for doors
+        if 'door' in name.lower():
+            faces = [
+                    shadow_vertices[0:4],  # Bottom face
+                    shadow_vertices[4:8],  # Top face
+                    [shadow_vertices[i] for i in [0, 1, 5, 4]],  # top face
+                    [shadow_vertices[i] for i in [1, 2, 6, 5]],  # Right face
+                    [shadow_vertices[i] for i in [2, 3, 7, 6]],  # bottom face
+                    [shadow_vertices[i] for i in [3, 0, 4, 7]],  # Left face
+            ]
+            shadow = Poly3DCollection(faces, color='grey', alpha=0.3, edgecolor='none')
+            ax.add_collection3d(shadow)
+        # Label the window/door
+        cx = sum([v[0] for v in vertices]) / 4
+        cy = sum([v[1] for v in vertices]) / 4
+        cz = sum([v[2] for v in vertices]) / 4
+        ax.text(cx, cy, cz + 10, name, color='black', ha='center', va='center')
+
+    # visuaize placed objects
+    def visualize_placed_objects(self,ax):
+        for object in self.objects:
+            obj = object['object']
+            z = 0 # currently all objects are on the floor
+            name = obj.object_type
+            room_width = self.room_width
+            room_depth = self.room_depth
+            room_height = self.room_height
+            x,y = obj.position
+            top, left,right,bottom = obj.shadow
+            w = obj.width
+            d = obj.depth
+            h = obj.height
+            
+            shadow_x = x - top
+            shadow_y = y - left
+            shadow_w = w + left + right
+            shadow_d = d + bottom + top
+
+            
+            # crop shadow if bigger than room
+            if shadow_x < 0:
+                shadow_x = 0
+            if shadow_y < 0:
+                shadow_y = 0
+            if shadow_x + shadow_d > room_width:
+                shadow_d = room_width - shadow_x
+            if shadow_y + shadow_w > room_depth:
+                shadow_w = room_depth - shadow_y
+            
+            shadow_floor = [
+                [shadow_x, shadow_y, 0],
+                [shadow_x + shadow_d, shadow_y, 0],
+                [shadow_x + shadow_d, shadow_y + shadow_w, 0],
+                [shadow_x, shadow_y + shadow_w, 0]
+            ]
+            ax.add_collection3d(Poly3DCollection([shadow_floor], color='gray', alpha=0.3))
+            
+            # Draw actual object (3D box)
+            vertices = [
+                [x, y, z], [x + d, y, z], [x + d, y + w, z], [x, y + w, z],  # Bottom face
+                [x, y, z + h], [x + d, y, z + h], [x + d, y + w, z + h], [x, y + w, z + h]  # Top face
+            ]
+            
+            faces = [
+                [vertices[0], vertices[1], vertices[2], vertices[3]],  # Bottom
+                [vertices[4], vertices[5], vertices[6], vertices[7]],  # Top
+                [vertices[0], vertices[1], vertices[5], vertices[4]],  # top
+                [vertices[2], vertices[3], vertices[7], vertices[6]],  # bottom
+                [vertices[1], vertices[2], vertices[6], vertices[5]],  # Right
+                [vertices[0], vertices[3], vertices[7], vertices[4]],  # Left
+            ]
+            color = self.color_map[name]
+
+            obj_3d = Poly3DCollection(faces, color=color, alpha=0.8, edgecolor='black')
+            ax.add_collection3d(obj_3d)
+            text_offset = 5  # Adjust this value to control the height of the text above the object
+            ax.text(x + w / 2, y + d / 2, z + h + text_offset, name, 
+                color='black', ha='center', va='bottom', fontsize=10, weight='bold')
+            # Label the object on the top face
+            # ax.text(x + w / 2, y + d / 2, z + h, name, color='white', ha='center', va='center', fontsize=10)
+    def visualize_room_with_shadows_3d(self):
+        """Create a 3D visualization of the bathroom layout.
+        
+        Args:
+            bathroom_size: Tuple of (width, depth) of the bathroom
+            placed_objects: List of objects placed in the bathroom
+            windows_doors: List of windows and doors in the bathroom
+            
+        Returns:
+            matplotlib.figure.Figure: A 3D figure that can be displayed and saved
+        """
+        room_width = self.room_width
+        room_depth = self.room_depth
+        room_height = self.room_height
+
+                
+
+        plt.ion()
+        # Create 3D figure - smaller size
+        fig = plt.figure(figsize=(6, 6), dpi=100)
+        ax = fig.add_subplot(111, projection='3d')
+        
+        # Use numpy arrays for aspect ratio to ensure proper data types
+        ax.set_box_aspect(np.array([float(room_width), float(room_depth), float(room_height)]))  # Aspect ratio
+        
+        # Room boundaries - use float values
+        ax.set_xlim(0.0, float(room_width))
+        ax.set_ylim(0.0, float(room_depth))
+        ax.set_zlim(0.0, float(room_height))
+        ax.set_xlabel('Width (X)')
+        ax.set_ylabel('Depth (Y)')
+        ax.set_zlabel('Height (Z)')
+        ax.set_title('3D Room Layout')
+        
+        # Show color-name mapping for objects from top to bottom
+        for i, (name, color) in enumerate(self.color_map.items()):
+            ax.text(float(room_width) + 1.0, float(room_depth) - i*30.0, float(room_height), 
+                    f"{name}: {color}", color=color, fontsize=10)
+                    
+        # Visualize doors, windows and objects
+        self.visualize_door_windows(ax)
+        self.visualize_placed_objects(ax) 
+        
+        # Initial view angle
+        ax.view_init(elev=float(self.current_elev), azim=float(self.current_azim))
+        # fig.canvas.draw()
+        # fig.tight_layout()
+        # plt.ioff()
+
+        
+        return fig
+    def draw_3d_room(self):
         """
         Draw a 3D visualization of the bathroom layout.
         
@@ -43,7 +292,8 @@ class Visualizer3D:
             matplotlib.figure.Figure: A 3D figure that can be displayed and saved
         """
         room_width, room_depth, room_height = self.room_width, self.room_depth, self.room_height
-        
+        objects = self.objects
+        doors = self.windows_doors
         # Create figure and 3D axis
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
@@ -202,17 +452,14 @@ class Visualizer3D:
             # Draw bathroom objects
             for obj in objects:
 
-                i = 0
-                while i < len(obj):
-
-                    name = obj[i]['object'].name
-                    width = obj[i]['object'].width
-                    depth = obj[i]['object'].depth
-                    height = obj[i]['object'].height
-                    shadow = obj[i]['object'].shadow
-                    position = obj[i]['object'].position
-                    wall = obj[i]['object'].wall
-                    x,y = position
+                name = obj['object'].name
+                width = obj['object'].width
+                depth = obj['object'].depth
+                height = obj['object'].height
+                shadow = obj['object'].shadow
+                position = obj['object'].position
+                wall = obj['object'].wall
+                x,y = position
 
             
                 # Get object type for coloring

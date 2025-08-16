@@ -4,7 +4,12 @@ import numpy as np
 from utils.helpers import check_which_wall, convert_values
 from models.layout import Layout
 from models.bathroom import Bathroom
+from models.windows_doors import WindowsDoors
+import json
 import streamlit as st
+OBJECT_TYPES = []
+with open('object_types.json') as f:
+    OBJECT_TYPES = json.load(f)
 class Visualizer2D:
     def __init__(self, bathroom:Bathroom):
         self.room_width = bathroom.width
@@ -27,9 +32,9 @@ class Visualizer2D:
             """
             try:
                 # Extract room dimensions
-                room_width = review.get('room_width', 200)
-                room_depth = review.get('room_depth', 200)
-                room_height = review.get('room_height', 280)
+                room_width = self.room_width
+                room_depth = self.room_depth
+                room_height = self.room_height
                 
                 # Extract objects and their positions
                 objects = review.get('objects', [])
@@ -75,19 +80,12 @@ class Visualizer2D:
                     door_type = item.get('type', 'top')
                     position = item.get('position', {})
                     dimensions = item.get('dimensions', {})
+
                     # Format: [id, wall, x, y, width, height, parapet, way, hinge]
-                    formatted_doors.append([
-                        'door',
-                        door_type,
-                        position.get('x', 0),
-                        position.get('y', 0),
-                        dimensions.get('width', 75),
-                        dimensions.get('height', 200),
-                        0,  # parapet
-                        'Inward',  # way
-                        'Left'  # hinge
-                    ])
-                
+                    door = WindowsDoors( 'door',door_type, position, dimensions.get('width', 75),dimensions.get('depth', 75), dimensions.get('height', 200), dimensions.get('hinge', 'Left'), dimensions.get('way', 'Inward'))
+                    self.windows_doors = door
+
+               
                 # Close any existing figures to prevent memory leaks
                 plt.close('all')
                 
@@ -99,8 +97,10 @@ class Visualizer2D:
                         valid_placed_objects.append(obj)
                     else:
                         st.warning(f"Skipping invalid object format: {obj}")
+                self.objects = valid_placed_objects
+                
                 # Generate 2D floorplan with validated objects
-                fig = draw_2d_floorplan((room_width, room_depth), valid_placed_objects, formatted_doors, 'Inward')
+                fig = self.draw_2d_floorplan()
                 
                 # Convert matplotlib figure to image
                 buf = io.BytesIO()
@@ -134,15 +134,14 @@ class Visualizer2D:
         # Ensure room dimensions are scalar values, not lists or tuples
         room_depth = self.room_depth[0] if isinstance(self.room_depth, (list, tuple)) else self.room_depth
         room_width = self.room_width[0] if isinstance(self.room_width, (list, tuple)) else self.room_width
-        
-        # Convert to integers if they're not already
-        try:
-            room_depth = int(room_depth)
-            room_width = int(room_width)
-        except (TypeError, ValueError):
-            # Default values if conversion fails
-            room_depth = 300
-            room_width = 300
+        # # Convert to integers if they're not already
+        # try:
+        #     room_depth = int(room_depth)
+        #     room_width = int(room_width)
+        # except (TypeError, ValueError):
+        #     # Default values if conversion fails
+        #     room_depth = 300
+        #     room_width = 300
 
         # figsize based on room size but smaller
         fig, ax = plt.subplots(figsize=((room_depth/100)*6, (room_width/100)*6))
@@ -161,53 +160,150 @@ class Visualizer2D:
         ax.plot([0, 0], [0, self.room_width], "k-", linewidth=3)  # Left wall
         ax.plot([self.room_depth, self.room_depth], [0, self.room_width], "k-", linewidth=3)  # Right wall
         
-        selected_door_type = ""
-
-        name = self.windows_doors.name
-        x = self.windows_doors.position[0]
-        y = self.windows_doors.position[1]
-        door_width = self.windows_doors.width
-        door_height = self.windows_doors.height
-
-        shadow = self.windows_doors.width
-        selected_door_type = self.windows_doors.wall
-        way = self.windows_doors.way
-        hinge = self.windows_doors.hinge
-        alpha = 0.5
-        #fig = draw_door_only(selected_door_type, way, hinge, x, door_width, door_height, room_width, room_depth, fig,ax)
-        # draw line in place of door
-        if selected_door_type == "top":
-            obj_shadow = patches.Rectangle((y, x), door_width, shadow, edgecolor="gray", facecolor="gray", alpha=alpha)
-            ax.add_patch(obj_shadow)
-            ax.text(y + door_width / 2, x + shadow / 2, name + " " + hinge, ha="center", va="center", fontsize=10, fontweight="bold")
+        # Check if windows_doors is a list or a single object
+        windows_doors_list = []
+        if isinstance(self.windows_doors, list):
+            windows_doors_list = self.windows_doors
+        elif self.windows_doors:
+            windows_doors_list = [self.windows_doors]
             
-        elif selected_door_type == "bottom":
-            obj_shadow = patches.Rectangle((y, self.room_width-shadow), door_width, shadow, edgecolor="gray", facecolor="gray", alpha=alpha)
-            ax.add_patch(obj_shadow)
-            ax.text(y + door_width / 2, self.room_width - shadow + door_width / 2, name + " " + hinge, ha="center", va="center", fontsize=10, fontweight="bold")
+        # Draw each door and window
+        for door_window in windows_doors_list:
+            name = door_window.name
+            x = door_window.position[0]
+            y = door_window.position[1]
+            door_width = door_window.width
+            door_height = door_window.height
+            shadow = door_window.width
+            selected_door_type = door_window.wall
+            way = door_window.way
+            hinge = door_window.hinge
+            alpha = 0.5
+            # Draw based on door/window type and position
+            if selected_door_type.lower() == "top":
+                obj_shadow = patches.Rectangle((y, x), door_width, shadow, edgecolor="gray", facecolor="gray", alpha=alpha)
+                ax.add_patch(obj_shadow)
+                ax.text(y + door_width / 2, x + shadow / 2, name, ha="center", va="center", fontsize=10, fontweight="bold")
+                # draw door opening if it's a door (not a window)
+                if name.startswith("door") and way and way.lower() == "inward":
+                    if hinge and hinge.lower() == "left":
+                        arc = patches.Arc((y+door_width, 0), door_width*2, door_width*2,
+                                          angle=270, theta1=180, theta2=270,
+                                          linewidth=2, color='black', linestyle='--')
+                        ax.add_patch(arc)
+                    elif hinge and hinge.lower() == "right":
+                        arc = patches.Arc((y, 0), door_width*2, door_width*2,
+                                          angle=0, theta1=0, theta2=90,
+                                          linewidth=2, color='black', linestyle='--')
+                        ax.add_patch(arc)
+            
+            elif selected_door_type.lower() == "bottom":
+                obj_shadow = patches.Rectangle((y, self.room_width-shadow), door_width, shadow, edgecolor="gray", facecolor="gray", alpha=alpha)
+                ax.add_patch(obj_shadow)
+                ax.text(y + door_width / 2, self.room_width - shadow + door_width / 2, name, ha="center", va="center", fontsize=10, fontweight="bold")
+                if name.startswith("door") and way and way.lower() == "inward":
+                    if hinge and hinge.lower() == "left":
+                        arc = patches.Arc((y, self.room_width), door_width*2, door_width*2,
+                                        angle=90, theta1=180, theta2=270,
+                                        linewidth=2, color='black', linestyle='--')
+                        ax.add_patch(arc)
+                    elif hinge and hinge.lower() == "right":
+                        arc = patches.Arc((y+door_width, self.room_width), door_width*2, door_width*2,
+                                        angle=180, theta1=0, theta2=90,
+                                        linewidth=2, color='black', linestyle='--')
+                        ax.add_patch(arc)
 
-        elif selected_door_type == "left":
-            obj_shadow = patches.Rectangle((0, x), shadow, door_width, edgecolor="gray", facecolor="gray", alpha=alpha)
-            ax.add_patch(obj_shadow)
-            ax.text(0 + shadow / 2, x + door_width / 2, name + " " + hinge, ha="center", va="center", fontsize=10, fontweight="bold")
 
-        elif selected_door_type == "right":
-            obj_shadow = patches.Rectangle((self.room_depth-shadow, x), shadow, door_width, edgecolor="gray", facecolor="gray", alpha=alpha)
-            ax.add_patch(obj_shadow)
-            ax.text(self.room_depth - shadow + door_width / 2, x + door_width / 2, name + " " + hinge, ha="center", va="center", fontsize=10, fontweight="bold")
+            elif selected_door_type.lower() == "left":
+                obj_shadow = patches.Rectangle((0, x), shadow, door_width, edgecolor="gray", facecolor="gray", alpha=alpha)
+                ax.add_patch(obj_shadow)
+                ax.text(0 + shadow / 2, x + door_width / 2, name, ha="center", va="center", fontsize=10, fontweight="bold")
+                if way.lower() == "inward":
+                    if hinge.lower() == "left":
+                        # Hinge at bottom-left corner of door
+                        arc = patches.Arc((0, x), 2*door_width, 2*door_width,
+                                          angle=0, theta1=0, theta2=90, color='black', linewidth=2)
+                        ax.add_patch(arc)
+                    elif hinge.lower() == "right":
+                        # Hinge at top-left corner
+                        arc = patches.Arc((0, x + door_width), 2*door_width, 2*door_width,
+                                          angle=0, theta1=270, theta2=360, color='black', linewidth=2)
+                        ax.add_patch(arc)
 
-        
+
+            elif selected_door_type.lower() == "right":
+                obj_shadow = patches.Rectangle((self.room_depth-shadow, x), shadow, door_width, edgecolor="gray", facecolor="gray", alpha=alpha)
+                ax.add_patch(obj_shadow)
+                ax.text(self.room_depth - shadow + door_width / 2, x + door_width / 2, name, ha="center", va="center", fontsize=10, fontweight="bold")
+                if way.lower() == "inward":
+                    if hinge.lower() == "right":
+                        ax.plot([room_depth - door_width, room_depth], [x,x], 'k-', linewidth=3)
+                        # Door swing arc
+                        arc = patches.Arc((room_depth, x), door_width*2, door_width*2, 
+                                        angle=270, theta1=180, theta2=270, linewidth=1, color='gray', linestyle='--')
+                        ax.add_patch(arc)
+                    elif hinge.lower() == "left":
+                        # Left hinge (from outside perspective)
+                        ax.plot([room_depth - door_width, room_depth], [x+door_width, x+door_width], 'k-', linewidth=3)
+                        # Door swing arc
+                        arc = patches.Arc((room_depth , x+door_width), door_width*2, door_width*2, 
+                                        angle=270, theta1=270, theta2=360, linewidth=1, color='gray', linestyle='--')
+                        ax.add_patch(arc)
+            #ax.text(0 + shadow / 2, x + door_width / 2, name + " " + hinge, ha="center", va="center", fontsize=10, fontweight="bold")
+            # if way.lower() == "inward":
+            #     if hinge.lower() == "left":
+            #         # Hinge at bottom-left corner of door
+            #         arc = patches.Arc((0, x), 2*door_width, 2*door_width,
+            #                           angle=0, theta1=0, theta2=90, color='black', linewidth=2)
+            #         ax.add_patch(arc)
+            #     elif hinge.lower() == "right":
+            #         # Hinge at top-left corner
+            #         arc = patches.Arc((0, x + door_width), 2*door_width, 2*door_width,
+            #                           angle=0, theta1=270, theta2=360, color='black', linewidth=2)
+            #         ax.add_patch(arc)
+
+
+        # elif selected_door_type.lower() == "right":
+        #     obj_shadow = patches.Rectangle((self.room_depth-shadow, x), shadow, door_width, edgecolor="gray", facecolor="gray", alpha=alpha)
+        #     ax.add_patch(obj_shadow)
+        #     ax.text(self.room_depth - shadow + door_width / 2, x + door_width / 2, name + " " + hinge, ha="center", va="center", fontsize=10, fontweight="bold")
+        #     if way.lower() == "inward":
+        #         if hinge.lower() == "right":
+        #             ax.plot([room_depth - door_width, room_depth], [x,x], 'k-', linewidth=3)
+        #             # Door swing arc
+        #             arc = patches.Arc((room_depth, x), door_width*2, door_width*2, 
+        #                             angle=270, theta1=180, theta2=270, linewidth=1, color='gray', linestyle='--')
+        #             ax.add_patch(arc)
+        #         elif hinge.lower() == "left":
+        #             # Left hinge (from outside perspective)
+        #             ax.plot([room_depth - door_width, room_depth], [x+door_width, x+door_width], 'k-', linewidth=3)
+        #             # Door swing arc
+        #             arc = patches.Arc((room_depth , x+door_width), door_width*2, door_width*2, 
+        #                             angle=270, theta1=270, theta2=360, linewidth=1, color='gray', linestyle='--')
+        #             ax.add_patch(arc)
+
+
+        print("for object ")
         # Draw objects
         for obj in self.objects:
-
-            x = obj["object"].position[0]
-            y = obj["object"].position[1]
-            width = obj["object"].width
-            depth = obj["object"].depth
-            height = obj["object"].height
-            shadow = obj["object"].shadow
-            name = obj["object"].name
-            wall = obj["object"].wall
+            if isinstance(obj, dict):
+                x = obj["object"].position[0]
+                y = obj["object"].position[1]
+                width = obj["object"].width
+                depth = obj["object"].depth
+                height = obj["object"].height
+                shadow = obj["object"].shadow
+                name = obj["object"].name
+                wall = obj["object"].wall
+            if isinstance(obj, list):
+                x = obj[0]
+                y = obj[1]
+                width = obj[2]
+                depth = obj[3]
+                height = obj[4]
+                shadow = obj[5]
+                name = obj[5]
+                wall = obj[7]
             if shadow is not None:
                 shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
                 shadow_x = x - shadow_top
@@ -222,12 +318,11 @@ class Visualizer2D:
 
         return fig
         
-    def visualize_available_spaces(self, placed_objects, available_spaces_dict, shadow=True):
+    def visualize_available_spaces(self, available_spaces_dict, shadow=True):
         """
         Visualizes the room with placed objects and available spaces.
         
         Args:
-            placed_objects (list): List of placed objects.
             available_spaces_dict (dict): Dictionary of available spaces
             shadow (bool): Whether to show shadow spaces
             
@@ -238,17 +333,25 @@ class Visualizer2D:
         # Draw room boundaries
         ax.add_patch(patches.Rectangle((0, 0), self.room_depth, self.room_width, fill=False, edgecolor='black', linewidth=2))
         # Draw placed objects
-        for obj in placed_objects:
-            x, y, width, depth, height, *_ = obj
+        for obj in self.objects:
+            x = obj["object"].position[0]
+            y = obj["object"].position[1]
+            width = obj["object"].width
+            depth = obj["object"].depth
+            height = obj["object"].height
+            shadow = obj["object"].shadow
+            name = obj["object"].name
+            wall = obj["object"].wall
             ax.add_patch(patches.Rectangle((y, x), width, depth, fill=True, color='blue', alpha=0.7))
         # Draw available spaces WITHOUT shadow (green)
         if not shadow:
-            for space in available_spaces_dict:
+            for space in available_spaces_dict['without_shadow']:
                 x, y, width, depth = space
                 ax.add_patch(patches.Rectangle((y, x), width, depth, fill=True, color='green', alpha=0.3, label='Available (no shadow)'))
         # Draw available spaces WITH shadow (orange, with some transparency)
         else:
-            for space in available_spaces_dict:
+            for space in available_spaces_dict['without_shadow']:
+                print(space)
                 x, y, width, depth = space
                 ax.add_patch(patches.Rectangle((y, x), width, depth, fill=True, color='orange', alpha=0.3, label='Available (with shadow)'))
         # Set limits and labels
@@ -636,7 +739,7 @@ class Visualizer2D:
         ax.set_ylim(room_depth, 0)  # Inverted y-axis
         
         return fig
-def draw_door(selected_door_type, selected_door_way, selected_door_hinge, x, door_width, door_height, room_width, room_depth):
+def draw_door(windows_doors, room_width, room_depth):
         # Create and display room dimension visualization
         fig, ax = plt.subplots(figsize=(5, 5))
         # Draw rectangle with room dimensions
@@ -655,130 +758,145 @@ def draw_door(selected_door_type, selected_door_way, selected_door_hinge, x, doo
         # Add center point
         ax.plot(room_depth/2, room_width/2, 'ro')
 
-
+        for door_window in windows_doors:
+            name = door_window.name
+            room_width = room_width
+            room_depth = room_depth
+            selected_door_type = door_window.wall
+            selected_door_way = door_window.way
+            selected_door_hinge = door_window.hinge
+            door_width = door_window.width
+            door_height = door_window.height
+            y,x = door_window.position
+            door_depth = door_window.depth
+            if name == "window":
+                door_width = door_window.width
+                door_height = door_window.height
+                y,x = door_window.position
+                door_depth = door_window.depth
             # add door based on selected door type, way, and hinge side
-        if selected_door_type == "top":
-            if selected_door_way == "Inward":
-                #door_rect = plt.Rectangle((x, self.room_width - door_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
-                # Add hinge indicator
-                if selected_door_hinge == "Right":
-                    # Left hinge (from outside perspective)
-                    ax.plot([x, x], [room_width, room_width - door_width], 'k-', linewidth=3)
-                    # Door swing arc
-                    arc = patches.Arc((x, room_width ), door_width*2, door_width*2, 
-                                    angle=-90, theta1=0, theta2=90, linewidth=1, color='gray', linestyle='--')
-                    ax.add_patch(arc)
-                else: # Right hinge
-                    # Right hinge (from outside perspective)
-                    ax.plot([x + door_width, x + door_width], [room_width, room_width - door_width], 'k-', linewidth=3)
-                    # Door swing arc
-                    arc = patches.Arc((x + door_width, room_width ), door_width*2, door_width*2, 
-                                    angle=90, theta1=90, theta2=180, linewidth=1, color='gray', linestyle='--')
-                    ax.add_patch(arc)
-            elif selected_door_way == "Outward":
-                #door_rect = plt.Rectangle((x, self.room_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
-                # Add hinge indicator
-                if selected_door_hinge == "Left":
-                    # Left hinge (from outside perspective)
-                    ax.plot([x, x], [room_width, room_width + door_width], 'k-', linewidth=3)
-                else: # Right hinge
-                    ax.plot([x + door_width, x + door_width], [room_width, room_width + door_width], 'k-', linewidth=3)
-                ax.text(x+door_width/2, room_width, f'{door_width:.1f}cm', ha='center', va='bottom')
-                # distance from corner
-                ax.text(x/2,room_width, f'{x:.1f}cm', ha='center', va='bottom')
-                ax.text(x+door_width + x/2, room_width, f'{room_depth-door_width-x:.1f}cm', ha='center', va='bottom')
-        elif selected_door_type == "bottom":
-            if selected_door_way == "Inward":
-                # Add hinge indicator
-                if selected_door_hinge == "Left":
-                    # Left hinge (from outside perspective)
-                    ax.plot([x, x], [0, door_width], 'k-', linewidth=3)
-                    # Door swing arc
-                    arc = patches.Arc((x, 0), door_width*2, door_width*2, 
-                                    angle=0, theta1=0, theta2=90, linewidth=1, color='gray', linestyle='--')
-                    ax.add_patch(arc)
-                else: # Right hinge
-                    # Right hinge (from outside perspective)
-                    ax.plot([x + door_width, x + door_width], [0, door_width], 'k-', linewidth=3)
-                    # Door swing arc
-                    arc = patches.Arc((x + door_width, 0), door_width*2, door_width*2, 
-                                    angle=0, theta1=90, theta2=180, linewidth=1, color='gray', linestyle='--')
-                    ax.add_patch(arc)
-            elif selected_door_way == "Outward":
-                #door_rect = plt.Rectangle((x, -door_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
-                # Add hinge indicator
-                if selected_door_hinge == "Left":
-                    # Left hinge (from outside perspective)
-                    ax.plot([x, x], [0, -door_width], 'k-', linewidth=3)
-                else: # Right hinge
-                    # Right hinge (from outside perspective)
-                    ax.plot([x + door_width, x + door_width], [0, -door_width], 'k-', linewidth=3)
-
-                # distance from corner
-                ax.text(x/2, 0, f'{x:.1f}cm', ha='center', va='bottom')
-                ax.text(x+door_width/2,0, f'{door_width:.1f}cm', ha='center', va='bottom')
-                ax.text(x+door_width + x/2, 0, f'{room_depth-door_width-x:.1f}cm', ha='center', va='bottom')
-        elif selected_door_type == "right":
-            if selected_door_way == "Inward":
-                # Add hinge indicator
-                if selected_door_hinge == "Left":
-                    # Left hinge from outside perspective (top of the door in this orientation)
-                    ax.plot([room_depth - door_width, room_depth], [room_width-x-door_width, room_width-x-door_width], 'k-', linewidth=3)
-                    # Door swing arc
-                    arc = patches.Arc((room_depth, room_width-x-door_width), door_width*2, door_width*2, 
-                                    angle=270, theta1=180, theta2=270, linewidth=1, color='gray', linestyle='--')
-                    ax.add_patch(arc)
-                else: # Right hinge
-                    # Right hinge from outside perspective (bottom of the door in this orientation)
-                        ax.plot([room_depth - door_width, room_depth], [room_width-x, room_width-x], 'k-', linewidth=3)
+            if selected_door_type == "top":
+                if selected_door_way == "Inward":
+                    #door_rect = plt.Rectangle((x, self.room_width - door_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
+                    # Add hinge indicator
+                    if selected_door_hinge == "Right":
+                        # Left hinge (from outside perspective)
+                        ax.plot([x, x], [room_width, room_width - door_width], 'k-', linewidth=3)
                         # Door swing arc
-                        arc = patches.Arc((room_depth , room_width-x), door_width*2, door_width*2, 
-                                        angle=270, theta1=270, theta2=360, linewidth=1, color='gray', linestyle='--')
+                        arc = patches.Arc((x, room_width ), door_width*2, door_width*2, 
+                                        angle=-90, theta1=0, theta2=90, linewidth=1, color='gray', linestyle='--')
                         ax.add_patch(arc)
-            elif selected_door_way == "Outward":
-                #door_rect = plt.Rectangle((self.room_depth, self.room_width-x-door_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
-                # Add hinge indicator
-                if selected_door_hinge == "Left":
-                    # Left hinge from outside perspective (top of the door in this orientation)
-                    ax.plot([room_depth, room_depth + door_width], [room_width-x-door_width, room_width-x-door_width], 'k-', linewidth=3)
-                else: # Right hinge
-                    # Right hinge from outside perspective (bottom of the door in this orientation)
-                    ax.plot([room_depth, room_depth + door_width], [room_width-x, room_width-x], 'k-', linewidth=3)
+                    else: # Right hinge
+                        # Right hinge (from outside perspective)
+                        ax.plot([x + door_width, x + door_width], [room_width, room_width - door_width], 'k-', linewidth=3)
+                        # Door swing arc
+                        arc = patches.Arc((x + door_width, room_width ), door_width*2, door_width*2, 
+                                        angle=90, theta1=90, theta2=180, linewidth=1, color='gray', linestyle='--')
+                        ax.add_patch(arc)
+                elif selected_door_way == "Outward":
+                    #door_rect = plt.Rectangle((x, self.room_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
+                    # Add hinge indicator
+                    if selected_door_hinge == "Left":
+                        # Left hinge (from outside perspective)
+                        ax.plot([x, x], [room_width, room_width + door_width], 'k-', linewidth=3)
+                    else: # Right hinge
+                        ax.plot([x + door_width, x + door_width], [room_width, room_width + door_width], 'k-', linewidth=3)
+                    ax.text(x+door_width/2, room_width, f'{door_width:.1f}cm', ha='center', va='bottom')
+                    # distance from corner
+                    ax.text(x/2,room_width, f'{x:.1f}cm', ha='center', va='bottom')
+                    ax.text(x+door_width + x/2, room_width, f'{room_depth-door_width-x:.1f}cm', ha='center', va='bottom')
+            elif selected_door_type == "bottom":
+                if selected_door_way == "Inward":
+                    # Add hinge indicator
+                    if selected_door_hinge == "Left":
+                        # Left hinge (from outside perspective)
+                        ax.plot([x, x], [0, door_width], 'k-', linewidth=3)
+                        # Door swing arc
+                        arc = patches.Arc((x, 0), door_width*2, door_width*2, 
+                                        angle=0, theta1=0, theta2=90, linewidth=1, color='gray', linestyle='--')
+                        ax.add_patch(arc)
+                    else: # Right hinge
+                        # Right hinge (from outside perspective)
+                        ax.plot([x + door_width, x + door_width], [0, door_width], 'k-', linewidth=3)
+                        # Door swing arc
+                        arc = patches.Arc((x + door_width, 0), door_width*2, door_width*2, 
+                                        angle=0, theta1=90, theta2=180, linewidth=1, color='gray', linestyle='--')
+                        ax.add_patch(arc)
+                elif selected_door_way == "Outward":
+                    #door_rect = plt.Rectangle((x, -door_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
+                    # Add hinge indicator
+                    if selected_door_hinge == "Left":
+                        # Left hinge (from outside perspective)
+                        ax.plot([x, x], [0, -door_width], 'k-', linewidth=3)
+                    else: # Right hinge
+                        # Right hinge (from outside perspective)
+                        ax.plot([x + door_width, x + door_width], [0, -door_width], 'k-', linewidth=3)
 
-                ax.text(room_depth + padding/2, room_width-x-door_width/2, f'{door_width:.1f}cm', ha='right', va='center', rotation=90)
-                ax.text(room_depth + padding/2, padding, f'{room_width-door_width-x:.1f}cm', ha='right', va='center', rotation=90)
-                ax.text(room_depth + padding/2, room_width-x/2, f'{x:.1f}cm', ha='right', va='center', rotation=90)
-        elif selected_door_type == "left":
-            if selected_door_way == "Inward":
-                #door_rect = plt.Rectangle((0, room_width-x-door_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
-                # Add hinge indicator
-                if selected_door_hinge == "Left":
-                    # Left hinge from outside perspective (bottom of the door in this orientation)
-                    ax.plot([0, door_width], [room_width-x, room_width-x], 'k-', linewidth=3)
-                    # Door swing arc
-                    arc = patches.Arc((0, room_width-x), door_width*2, door_width*2, 
-                                    angle=90, theta1=180, theta2=270, linewidth=1, color='gray', linestyle='--')
-                    ax.add_patch(arc)
-                else: # Right hinge
-                    # Right hinge from outside perspective (top of the door in this orientation)
-                    ax.plot([0, door_width], [room_width-x-door_width, room_width-x-door_width], 'k-', linewidth=3)
-                    # Door swing arc
-                    arc = patches.Arc((0, room_width-x-door_width), door_width*2, door_width*2, 
-                                    angle=90, theta1=270, theta2=360, linewidth=1, color='gray', linestyle='--')
-                    ax.add_patch(arc)
-            elif selected_door_way == "Outward":
-                #door_rect = plt.Rectangle((-door_width, self.room_width-x-door_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
-                # Add hinge indicator
-                if selected_door_hinge == "Left":
-                    # Left hinge from outside perspective (bottom of the door in this orientation)
-                    ax.plot([0, -door_width], [room_width-x, room_width-x], 'k-', linewidth=3)
-                else: # Right hinge
-                    # Right hinge from outside perspective (top of the door in this orientation)
-                    ax.plot([0, -door_width], [room_width-x-door_width, room_width-x-door_width], 'k-', linewidth=3)
-                ax.text(0+ padding/2, room_width-x-door_width/2, f'{door_width:.1f}cm', ha='right', va='center', rotation=90)
-                ax.text(0+padding/2, padding, f'{room_width-door_width-x:.1f}cm', ha='right', va='center', rotation=90)
-                ax.text(0+padding/2, room_width-x/2, f'{x:.1f}cm', ha='right', va='center', rotation=90)
-                # Remove axis ticks and labels for cleaner look
+                    # distance from corner
+                    ax.text(x/2, 0, f'{x:.1f}cm', ha='center', va='bottom')
+                    ax.text(x+door_width/2,0, f'{door_width:.1f}cm', ha='center', va='bottom')
+                    ax.text(x+door_width + x/2, 0, f'{room_depth-door_width-x:.1f}cm', ha='center', va='bottom')
+            elif selected_door_type == "right":
+                if selected_door_way == "Inward":
+                    # Add hinge indicator
+                    if selected_door_hinge == "Left":
+                        # Left hinge from outside perspective (top of the door in this orientation)
+                        ax.plot([room_depth - door_width, room_depth], [room_width-x-door_width, room_width-x-door_width], 'k-', linewidth=3)
+                        # Door swing arc
+                        arc = patches.Arc((room_depth, room_width-x-door_width), door_width*2, door_width*2, 
+                                        angle=270, theta1=180, theta2=270, linewidth=1, color='gray', linestyle='--')
+                        ax.add_patch(arc)
+                    else: # Right hinge
+                        # Right hinge from outside perspective (bottom of the door in this orientation)
+                            ax.plot([room_depth - door_width, room_depth], [room_width-x, room_width-x], 'k-', linewidth=3)
+                            # Door swing arc
+                            arc = patches.Arc((room_depth , room_width-x), door_width*2, door_width*2, 
+                                            angle=270, theta1=270, theta2=360, linewidth=1, color='gray', linestyle='--')
+                            ax.add_patch(arc)
+                elif selected_door_way == "Outward":
+                    #door_rect = plt.Rectangle((self.room_depth, self.room_width-x-door_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
+                    # Add hinge indicator
+                    if selected_door_hinge == "Left":
+                        # Left hinge from outside perspective (top of the door in this orientation)
+                        ax.plot([room_depth, room_depth + door_width], [room_width-x-door_width, room_width-x-door_width], 'k-', linewidth=3)
+                    else: # Right hinge
+                        # Right hinge from outside perspective (bottom of the door in this orientation)
+                        ax.plot([room_depth, room_depth + door_width], [room_width-x, room_width-x], 'k-', linewidth=3)
+
+                    ax.text(room_depth + padding/2, room_width-x-door_width/2, f'{door_width:.1f}cm', ha='right', va='center', rotation=90)
+                    ax.text(room_depth + padding/2, padding, f'{room_width-door_width-x:.1f}cm', ha='right', va='center', rotation=90)
+                    ax.text(room_depth + padding/2, room_width-x/2, f'{x:.1f}cm', ha='right', va='center', rotation=90)
+            elif selected_door_type == "left":
+                if selected_door_way == "Inward":
+                    #door_rect = plt.Rectangle((0, room_width-x-door_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
+                    # Add hinge indicator
+                    if selected_door_hinge == "Left":
+                        # Left hinge from outside perspective (bottom of the door in this orientation)
+                        ax.plot([0, door_width], [room_width-x, room_width-x], 'k-', linewidth=3)
+                        # Door swing arc
+                        arc = patches.Arc((0, room_width-x), door_width*2, door_width*2, 
+                                        angle=90, theta1=180, theta2=270, linewidth=1, color='gray', linestyle='--')
+                        ax.add_patch(arc)
+                    else: # Right hinge
+                        # Right hinge from outside perspective (top of the door in this orientation)
+                        ax.plot([0, door_width], [room_width-x-door_width, room_width-x-door_width], 'k-', linewidth=3)
+                        # Door swing arc
+                        arc = patches.Arc((0, room_width-x-door_width), door_width*2, door_width*2, 
+                                        angle=90, theta1=270, theta2=360, linewidth=1, color='gray', linestyle='--')
+                        ax.add_patch(arc)
+                elif selected_door_way == "Outward":
+                    #door_rect = plt.Rectangle((-door_width, self.room_width-x-door_width), door_width, door_width, linewidth=2, edgecolor='#1f77b4', facecolor='#e6f3ff')
+                    # Add hinge indicator
+                    if selected_door_hinge == "Left":
+                        # Left hinge from outside perspective (bottom of the door in this orientation)
+                        ax.plot([0, -door_width], [room_width-x, room_width-x], 'k-', linewidth=3)
+                    else: # Right hinge
+                        # Right hinge from outside perspective (top of the door in this orientation)
+                        ax.plot([0, -door_width], [room_width-x-door_width, room_width-x-door_width], 'k-', linewidth=3)
+                    ax.text(0+ padding/2, room_width-x-door_width/2, f'{door_width:.1f}cm', ha='right', va='center', rotation=90)
+                    ax.text(0+padding/2, padding, f'{room_width-door_width-x:.1f}cm', ha='right', va='center', rotation=90)
+                    ax.text(0+padding/2, room_width-x/2, f'{x:.1f}cm', ha='right', va='center', rotation=90)
+                    # Remove axis ticks and labels for cleaner look
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_aspect('equal')
