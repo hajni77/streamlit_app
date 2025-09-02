@@ -39,9 +39,9 @@ def save_data(supabase, room_sizes, positions, doors, review, is_enough_path, sp
             # Convert input data to match table schema
             review_data = {
                 "room_name": room_name or "My Bathroom Design",
-                "room_width": int(room_sizes[0]),
-                "room_depth": int(room_sizes[1]),
-                "room_height": int(room_sizes[2]),
+                "room_width": float(room_sizes[0]),
+                "room_depth": float(room_sizes[1]),
+                "room_height": float(room_sizes[2]),
                 "objects": objects,
                 "objects_positions": objects_positions,
                 "review": {
@@ -438,6 +438,9 @@ def find_contiguous_space(grid, visited, start_x, start_y, grid_width, grid_dept
 def sort_objects_by_size(object_list, room_width, room_depth):
     """Sort objects by their maximum possible area (largest first)."""
     # Check if both "Sink" and "Double Sink" are in the object list
+    object_list = [item.lower() for item in object_list]
+
+            
     has_sink = "Sink" in object_list or "sink" in object_list
     has_double_sink = "Double Sink" in object_list or "double sink" in object_list
     
@@ -446,30 +449,29 @@ def sort_objects_by_size(object_list, room_width, room_depth):
     if has_sink and has_double_sink:
     # For small bathrooms (< 300x300 cm), always keep the regular sink
         if room_width < 300 or room_depth < 300:
-            sink_to_keep = "Sink"
+            sink_to_keep = "sink"
             filtered_object_list.remove("double sink")
             print(f"Small bathroom detected ({room_width}x{room_depth}). Keeping only regular Sink.")
         else:
             # For larger bathrooms, randomly choose which sink type to keep
-            sink_to_keep = random.choice(["Sink", "double sink"])
-            if sink_to_keep == "Sink":
+            sink_to_keep = random.choice(["sink", "double sink"])
+            if sink_to_keep == "sink":
                 filtered_object_list.remove("double sink")
             else:
                 filtered_object_list.remove("sink")
             print(f"Larger bathroom detected. Keeping only: {sink_to_keep}")
-        
+            object_list = filtered_object_list.copy()
+    elif not has_sink and not has_double_sink:
+        # add sink to the list
+        object_list.append("sink")
     if len(object_list) <= 2:
-
-        # sink will be the first
-        if "sink" in object_list[0] or "Sink" in object_list[0]:
-            return object_list
-        elif "sink" in object_list[1] or "Sink" in object_list[1]:
-            return object_list[::-1]
-    else:
-        objects_list_priority = ["bathtub", "shower", "asymmetrical bathtub", "toilet", "toilet bidet","double sink", "sink", "washing machine", "washing dryer",  "cabinet", "washing machine dryer"]
-        # sort object_list by priority
-        object_list.sort(key=lambda obj: objects_list_priority.index(obj) if obj in objects_list_priority else len(objects_list_priority), reverse=False)
-        return object_list
+        if "sink" in object_list[1] or "Sink" in object_list[1]:
+            object_list = object_list[::-1]
+    
+    objects_list_priority = ["bathtub", "shower", "asymmetrical bathtub", "toilet", "toilet bidet","double sink", "sink", "washing machine", "washing dryer",  "cabinet", "washing machine dryer"]
+    # sort object_list by priority
+    object_list.sort(key=lambda obj: objects_list_priority.index(obj) if obj in objects_list_priority else len(objects_list_priority), reverse=False)
+    return object_list
 # Check if two rectangles overlap
 def check_overlap(rect1, rect2):
     # Extract coordinates (x, y, width, depth, height)

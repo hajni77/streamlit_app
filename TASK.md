@@ -88,3 +88,14 @@ Last updated: 2025-04-16
 ## create a function which resize the objects to bigger size if the space is enough
 
 ## Create deep-q network 
+
+
+## this project will be the backend for my flutter application, without the streamlit.
+
+How to communicate flutter with backend?
+
+1. when in the flutter app the generate button clicked, all information came to backend that needed for floorplan generation (beamsearch generate function).
+2. When the Room floorplans generated one of them given back to the flutter app(layout positions)
+
+You need to:
+create functions to handle API calls and create a file siliral to app.py without the streamlit, which could be the main backend file for my project

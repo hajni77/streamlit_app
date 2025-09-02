@@ -86,46 +86,50 @@ def identify_available_space(placed_obj, room_sizes, grid_size=1, windows_doors=
         #check time 
 
         room_width, room_depth = room_sizes
-        grid_width = room_width // grid_size 
-        grid_depth = room_depth // grid_size 
+        # Convert to int for grid calculations
+        grid_width = int(room_width // grid_size)
+        grid_depth = int(room_depth // grid_size)
         grid = [[1 for _ in range(grid_depth)] for _ in range(grid_width)]
+        
         # Mark occupied spaces
         for obj in placed_obj:
             name = obj['object'].name
-            width = obj['object'].width
-            depth = obj['object'].depth
-            height = obj['object'].height
+            width = float(obj['object'].width)
+            depth = float(obj['object'].depth)
+            height = float(obj['object'].height)
             shadow = obj['object'].shadow
             position = obj['object'].position
             wall = obj['object'].wall
-            x,y = position
+            x, y = float(position[0]), float(position[1])
             shadow_top, shadow_left, shadow_right, shadow_bottom = shadow
+            
             if include_shadows:
-                start_x = max(0, (x - shadow_top) // grid_size)
-                start_y = max(0, (y - shadow_left) // grid_size)
-                end_x = min(grid_width, (x + depth + shadow_bottom) // grid_size )
-                end_y = min(grid_depth, (y + width + shadow_right) // grid_size )
+                start_x = max(0, int((x - shadow_top) // grid_size))
+                start_y = max(0, int((y - shadow_left) // grid_size))
+                end_x = min(grid_width, int((x + depth + shadow_bottom) // grid_size))
+                end_y = min(grid_depth, int((y + width + shadow_right) // grid_size))
             else:
-                start_x = max(0, x // grid_size)
-                start_y = max(0, y // grid_size)
-                end_x = min(grid_width, (x + depth) // grid_size )
-                end_y = min(grid_depth, (y + width) // grid_size )
+                start_x = max(0, int(x // grid_size))
+                start_y = max(0, int(y // grid_size))
+                end_x = min(grid_width, int((x + depth) // grid_size))
+                end_y = min(grid_depth, int((y + width) // grid_size))
+                
             for i in range(start_x, end_x):
                 for j in range(start_y, end_y):
                     grid[i][j] = 0
         # if include_shadows:
         #     for i in windows_doors:
-        #         id_, wall, x, y,  width,height, parapet, way , hinge= i
-        #         start_x = max(0, (x ) // grid_size)
-        #         start_y = max(0, (y) // grid_size)
-        #         end_x = min(grid_width, (x + width) // grid_size )
-        #         end_y = min(grid_depth, (y + width) // grid_size )
+        #         id_, wall, x, y,  width, height, parapet, way, hinge = i
+        #         start_x = max(0, int(float(x) // grid_size))
+        #         start_y = max(0, int(float(y) // grid_size))
+        #         end_x = min(grid_width, int((float(x) + float(width)) // grid_size))
+        #         end_y = min(grid_depth, int((float(y) + float(width)) // grid_size))
         #         if wall == "right":
         #             end_y = start_y
-        #             start_y = start_y - width
+        #             start_y = max(0, int(start_y - float(width) // grid_size))
         #         if wall == "bottom":
         #             end_x = start_x
-        #             start_x = start_x - width
+        #             start_x = max(0, int(start_x - float(width) // grid_size))
         #         for i in range(start_x, end_x):
         #             for j in range(start_y, end_y):
         #                 grid[i][j] = 0
@@ -135,10 +139,10 @@ def identify_available_space(placed_obj, room_sizes, grid_size=1, windows_doors=
             for j in range(grid_depth):
                 if grid[i][j] == 1 and not visited[i][j]:
                     space = find_contiguous_space(grid, visited, i, j, grid_width, grid_depth)
-                    x = space["start_x"] * grid_size
-                    y = space["start_y"] * grid_size
-                    width = (space["end_y"] - space["start_y"]) * grid_size
-                    depth = (space["end_x"] - space["start_x"]) * grid_size
+                    x = float(space["start_x"] * grid_size)
+                    y = float(space["start_y"] * grid_size)
+                    width = float((space["end_y"] - space["start_y"]) * grid_size)
+                    depth = float((space["end_x"] - space["start_x"]) * grid_size)
                     if width >= 30 and depth >= 30:
                         available_spaces.append((x, y, width, depth))
         # closed = check_enclosed_spaces(grid, grid_size, room_width, room_depth)
@@ -170,6 +174,12 @@ def find_contiguous_space(grid, visited, start_x, start_y, grid_width, grid_dept
     Returns:
         dict: Dictionary with the bounds of the contiguous space.
     """
+    # Ensure all indices are integers
+    start_x = int(start_x)
+    start_y = int(start_y)
+    grid_width = int(grid_width)
+    grid_depth = int(grid_depth)
+    
     # Mark the starting cell as visited
     visited[start_x][start_y] = True
     
@@ -196,8 +206,8 @@ def find_contiguous_space(grid, visited, start_x, start_y, grid_width, grid_dept
             for j in range(start_y, end_y + 1):
                 visited[end_x][j] = True
     return {
-        "start_x": start_x,
-        "start_y": start_y,
-        "end_x": end_x + 1,  # Add 1 to get the exclusive end
-        "end_y": end_y + 1   # Add 1 to get the exclusive end
+        "start_x": int(start_x),
+        "start_y": int(start_y),
+        "end_x": int(end_x) + 1,  # Add 1 to get the exclusive end
+        "end_y": int(end_y) + 1   # Add 1 to get the exclusive end
     }

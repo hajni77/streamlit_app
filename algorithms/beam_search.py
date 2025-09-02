@@ -34,7 +34,6 @@ class BeamSearch:
         # Sort objects by priority
         sorted_objects = sort_objects_by_size(objects_to_place, self.bathroom.width, self.bathroom.depth)
 
-        print("sorted_objects", sorted_objects)
         # Initialize beam with empty layout
         beam = [Layout(self.bathroom.clone(), objects_to_place)]
         
@@ -51,13 +50,18 @@ class BeamSearch:
                 placement_options = self.placement_strategy.generate_options(
                     layout, obj, obj_def, self.bathroom.get_size(), layout.bathroom.get_placed_objects(), windows_doors
                 )
-                print("obj", obj)
                 if not placement_options and obj == "double sink":
                     obj_def = self.bathroom.OBJECT_TYPES["sink"]
                     #change sorted_objects double sink to sink
-                    sorted_objects.remove("double sink")
+                    sorted_objects.remove('double sink')
+                    layout.requested_objects.remove('double sink')
                     #place the sink first
+                    print("sorted_objects", sorted_objects)
+
                     sorted_objects.insert(0, "sink")
+                    layout.requested_objects.insert(0, "sink")
+                    print("sorted_objects", sorted_objects)
+                    
                     placement_options = self.placement_strategy.generate_options(
                         layout, "sink", obj_def, self.bathroom.get_size(), layout.bathroom.get_placed_objects(), windows_doors
                     )
@@ -77,12 +81,10 @@ class BeamSearch:
                     new_layout = layout.clone()
                     # add the new object to the layout
                     new_layout.bathroom.add_object(placement)
-
                     # evaluate the object on the layout
                     #new_layout.score = validator.validate(placement, self.bathroom)
                     new_layout.evaluate(self.scoring_function)
                     # add the new layout to the candidates
-                    
                     new_candidates.append(new_layout)
 
                     # delete candidates with the exact same score and keep only one
@@ -114,7 +116,6 @@ class BeamSearch:
                     
                     if seen[rounded] <= 2:  # Keep up to 3 layouts with the same score
                         new_candidates.append(layout)
-
 
             # Select top layouts for the next iteration
             beam = sorted(new_candidates, key=lambda x: x.score, reverse=True)[:self.beam_width]

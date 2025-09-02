@@ -2,7 +2,7 @@
 class Bathroom:
     """Represents a bathroom with its dimensions and fixtures."""
     
-    def __init__(self, width, depth, height=280,objects=None,windows_doors=None,object_types=None):
+    def __init__(self, width, depth, height,objects=None,windows_doors=None,object_types=None):
         self.width = width
         self.depth = depth
         self.height = height

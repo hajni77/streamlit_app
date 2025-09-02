@@ -170,12 +170,12 @@ class BathroomScoringFunction(BaseScoringFunction):
         total_score = 0
         scores = {}
         
-    
+
 
         # # check space
         available_space = identify_available_space(placed_objects, (room_width, room_depth), grid_size=1, windows_doors=windows_doors)
         available_space_without_shadow = available_space['without_shadow']
-        
+
         # check enclosed spaces
         if check_enclosed_spaces(available_space_without_shadow, room_width, room_depth):
             scores["enclosed_spaces"] = 0
@@ -185,7 +185,6 @@ class BathroomScoringFunction(BaseScoringFunction):
 
         # 1. Check for overlapping objects (critical constraint)
         no_overlap_score = 10
-        
         # Check for overlaps between objects
         for i, obj in enumerate(placed_objects):
             x = obj["object"].position[0]
@@ -196,7 +195,6 @@ class BathroomScoringFunction(BaseScoringFunction):
             shadow = obj["object"].shadow
             name = obj["object"].name
             wall = obj["object"].wall
-            
             
             # Check for overlaps with other objects
             for j in range(i + 1, len(placed_objects)):

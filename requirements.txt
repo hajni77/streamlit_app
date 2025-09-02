@@ -1,15 +1,44 @@
-streamlit
+# Core dependencies for bathroom layout generator
 numpy
 pandas
 matplotlib
-pydrive
-firebase-admin
-psycopg2-binary
-python-dotenv
-st-supabase-connection
-supabase
 scikit-learn
+
+# Machine learning related
 torch
 gym
 stable-baselines3
+
+# API related dependencies
+fastapi>=0.95.0
+uvicorn[standard]>=0.21.0
+pydantic>=2.0.0
+python-multipart
+
+# Database and authentication (if needed)
+firebase-admin
+python-dotenv
+supabase
 gotrue
+psycopg2-binary
+
+# Original Streamlit UI dependencies (not required for API-only setup)
+# streamlit
+# pydrive
+# st-supabase-connection
+# streamlit
+# numpy
+# pandas
+# matplotlib
+# pydrive
+# firebase-admin
+# psycopg2-binary
+# python-dotenv
+# st-supabase-connection
+# supabase
+# scikit-learn
+# torch
+# gym
+# stable-baselines3
+# gotrue
+# 

@@ -159,9 +159,9 @@ def save_data(supabase, room_sizes, positions, doors, review, is_enough_path, sp
             # Convert input data to match table schema
             review_data = {
                 "room_name": room_name or "My Bathroom Design",
-                "room_width": int(room_sizes[0]),
-                "room_depth": int(room_sizes[1]),
-                "room_height": int(room_sizes[2]),
+                "room_width": float(room_sizes[0]),
+                "room_depth": float(room_sizes[1]),
+                "room_height": float(room_sizes[2]),
                 "objects": objects,
                 "objects_positions": objects_positions,
                 "review": {
