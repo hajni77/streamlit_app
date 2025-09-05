@@ -67,6 +67,7 @@ class ObjectPosition(BaseModel):
     width: float
     depth: float
     height: float
+    wall: str
 
     shadow: List[float] = [0, 0, 0, 0]
 
@@ -142,21 +143,22 @@ async def generate_layout(request: GenerateLayoutRequest, background_tasks: Back
         # Format the response
         objects_name = []
         for obj in best_layout.bathroom.objects:
-            print("obj", obj['object'].name)
             name = obj['object'].name
             objects_name.append(name)
         objects = []
         i=0
         for obj in best_layout.bathroom.objects:
-            obj = obj['position']
+            object_position = obj['position']
+            wall = obj['object'].wall
 
             objects.append(ObjectPosition(
                 object_type=objects_name[i],
-                position=(float(obj[0]), float(obj[1])),
-                width=float(obj[2]),
-                depth=float(obj[3]),
-                height=float(obj[4]),
-                shadow=(obj[5] if obj[5] else [0, 0, 0, 0])
+                position=(float(object_position[0]), float(object_position[1])),
+                width=float(object_position[2]),
+                depth=float(object_position[3]),
+                height=float(object_position[4]),
+                shadow=(object_position[5] if object_position[5] else [0, 0, 0, 0]),
+                wall=wall
             ))
             i+=1
         # Use the request ID if provided, otherwise generate a unique ID

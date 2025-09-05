@@ -23,10 +23,10 @@ gotrue
 psycopg2-binary
 
 # Original Streamlit UI dependencies (not required for API-only setup)
-# streamlit
-# pydrive
-# st-supabase-connection
-# streamlit
+streamlit
+pydrive
+st-supabase-connection
+streamlit
 # numpy
 # pandas
 # matplotlib
