@@ -1,0 +1,167 @@
+{
+  "timestamp": "2025-09-11T13:13:18.002165",
+  "request": {
+    "id": "3a54d0c6-bc87-4350-87d3-f2d4bfea47c0",
+    "room_width": 247.99999999999997,
+    "room_depth": 240.00000000000028,
+    "room_height": 280.0,
+    "objects_to_place": [
+      "Bathtub",
+      "Sink",
+      "Shower",
+      "Toilet"
+    ],
+    "windows_doors": [
+      {
+        "name": "door",
+        "wall": "right",
+        "position": [
+          135.0,
+          240.0
+        ],
+        "width": 75.0,
+        "depth": 5.0,
+        "height": 275.0,
+        "hinge": "left",
+        "way": "inward"
+      }
+    ],
+    "beam_width": 5
+  },
+  "bathroom": "<models.bathroom.Bathroom object at 0x0000022776149010>",
+  "layout": "<models.layout.Layout object at 0x0000022776149050>",
+  "response": {
+    "layout_id": "3a54d0c6-bc87-4350-87d3-f2d4bfea47c0",
+    "score": 59.21296296296296,
+    "room_width": 247.99999999999997,
+    "room_depth": 240.00000000000028,
+    "room_height": 280.0,
+    "objects": [
+      {
+        "object_type": "bathtub",
+        "position": [
+          0.0,
+          80.00000000000028
+        ],
+        "width": 160.0,
+        "depth": 80.0,
+        "height": 56.0,
+        "wall": "top-right",
+        "shadow": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "object_type": "shower",
+        "position": [
+          167.99999999999997,
+          0.0
+        ],
+        "width": 80.0,
+        "depth": 80.0,
+        "height": 200.0,
+        "wall": "bottom-left",
+        "shadow": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      },
+      {
+        "object_type": "toilet",
+        "position": [
+          110.0,
+          0.0
+        ],
+        "width": 70.0,
+        "depth": 55.0,
+        "height": 40.0,
+        "wall": "left",
+        "shadow": [
+          0.0,
+          0.0,
+          60.0,
+          0.0
+        ]
+      },
+      {
+        "object_type": "sink",
+        "position": [
+          0.0,
+          10.0
+        ],
+        "width": 60.0,
+        "depth": 50.0,
+        "height": 85.0,
+        "wall": "top",
+        "shadow": [
+          0.0,
+          0.0,
+          0.0,
+          60.0
+        ]
+      }
+    ],
+    "score_breakdown": {
+      "enclosed_spaces": 10.0,
+      "no_overlap": 10.0,
+      "wall_corner_constraints": 10.0,
+      "corner_coverage": 10.0,
+      "door_sink_toilet": 13.333333333333332,
+      "sink_opposite_door": 0.0,
+      "sink_symmetrial_door": 0.0,
+      "door_sink_distance": 0.0,
+      "toilet_to_door": 0.0,
+      "corner_toilet": 0.0,
+      "hidden_sink": 10.0,
+      "not_enough_space": 10.0,
+      "spacing": 8.75,
+      "shadow_constraints": 10.0,
+      "requested_objects": 2.5,
+      "bathtub_placement": 10.0,
+      "toilet_free_space": 10.0,
+      "opposite_walls_distance": 10.0
+    },
+    "processing_time": 13.821805238723755,
+    "windows_doors": [
+      {
+        "name": "door",
+        "wall": "right",
+        "position": [
+          135.0,
+          240.0
+        ],
+        "width": 75.0,
+        "depth": 5.0,
+        "height": 275.0,
+        "hinge": "left",
+        "way": "inward"
+      }
+    ]
+  },
+  "score": 59.21296296296296,
+  "score_breakdown": {
+    "enclosed_spaces": 10,
+    "no_overlap": 10,
+    "wall_corner_constraints": 10,
+    "corner_coverage": 10.0,
+    "door_sink_toilet": 13.333333333333332,
+    "sink_opposite_door": 0,
+    "sink_symmetrial_door": 0,
+    "door_sink_distance": 0,
+    "toilet_to_door": 0,
+    "corner_toilet": 0,
+    "hidden_sink": 10,
+    "not_enough_space": 10,
+    "spacing": 8.75,
+    "shadow_constraints": 10.0,
+    "requested_objects": 2.5,
+    "bathtub_placement": 10,
+    "toilet_free_space": 10,
+    "opposite_walls_distance": 10
+  }
+}

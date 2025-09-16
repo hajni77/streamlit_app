@@ -234,6 +234,7 @@ class BathroomScoringFunction(BaseScoringFunction):
         sink_count = 0
         toilet_count = 0
         requested_score = 0
+        shower_count = 0
         shadow_score = 0
         bathtub_placement_score = 0
         hidden_sink_score = 10
@@ -266,6 +267,9 @@ class BathroomScoringFunction(BaseScoringFunction):
             shadow = obj["object"].shadow
             name = obj["object"].name
             wall = obj["object"].wall
+
+            if name.lower() == "shower":
+                shower_count += 1
             # # 2. Wall and Corner Constraints
             # if must_be_against_wall and wall == "middle":
             #     wall_corner_score = 0  # Zero points if wall constraint violated
@@ -533,6 +537,13 @@ class BathroomScoringFunction(BaseScoringFunction):
         
         total_score += scores["opposite_walls_distance"]
 
+        # check minimal space for shower
+        if shower_count > 0:
+            has_enough_space_shower = check_minimal_space_for_shower(placed_objects, (room_width, room_depth, room_height))
+            if has_enough_space_shower:
+                scores["shower_space"] = 10
+            else:
+                scores["shower_space"] = 0
         
         # Critical constraints check - if any critical constraint is violated, score is 0
         if (scores["no_overlap"] == 0 or 

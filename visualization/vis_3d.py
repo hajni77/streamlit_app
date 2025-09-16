@@ -43,129 +43,129 @@ class Visualizer3D:
 
     def visualize_door_windows(self, ax):
         # Ensure all parameters are of the correct type
-        
-        parapet = 0
-        name = self.windows_doors.name
-        room_width = self.room_width
-        room_depth = self.room_depth
-        wall = self.windows_doors.wall
-        width = self.windows_doors.width
-        height = self.windows_doors.height
-        x,y = self.windows_doors.position
-        depth = self.windows_doors.depth
-        # Draw windows and doors
-            
-            # Calculate vertices based on wall placement
-        if wall == "top":
-            vertices = [
-                    [0, y, parapet],
-                    [0, y + width, parapet],
-                    [0, y + width, parapet + height],
-                    [0, y, parapet + height]
-            ]
+        for windows_doors in self.windows_doors:
+            parapet = 0
+            name = windows_doors.name
+            room_width = self.room_width
+            room_depth = self.room_depth
+            wall = windows_doors.wall
+            width = windows_doors.width
+            height = windows_doors.height
+            x,y = windows_doors.position
+            depth = windows_doors.depth
+            # Draw windows and doors
                 
-            # 3D Shadow as a box on the floor
-            if 'door' in name.lower():
-                shadow_vertices = [
-                        # Bottom rectangle
-                    [0, y, parapet],
-                    [0, y + width, parapet],
-                    [0, y + width, parapet + height],
-                    [0, y, parapet + height],
-                        # Top rectangle (slightly raised)
-                    [width, y, parapet],
-                    [width, y + width, parapet],
-                    [width, y + width, parapet + height],
-                    [width, y, parapet + height],
-                    ]
-            
-        elif wall == "bottom":
-            vertices = [
-                    [room_width, y, parapet],
-                    [room_width, y + width, parapet],
-                    [room_width, y + width, parapet + height],
-                    [room_width, y, parapet + height]
-            ]
-                
-            # 3D Shadow as a box on the floor
-            if 'door' in name.lower():
-                # Calculate shadow vertices, 75 cm into the room
-                shadow_vertices = [
-                    [room_width, y, parapet],
-                    [room_width, y + width, parapet],
-                    [room_width, y + width, parapet + height],
-                    [room_width, y, parapet + height],
-                    [room_width - width, y, parapet],                 # Bottom-left
-                    [room_width - width, y + width, parapet],         # Top-left
-                    [room_width - width, y + width, parapet + height], # Top-right
-                    [room_width - width, y, parapet + height]           # Bottom-right
-                    ]
-            
-        elif wall == "right":
-            vertices = [
-                    [x, room_depth,parapet],  # Top-left corner
-                    [x + width, room_depth, parapet],  # Top-right corner
-                    [x + width, room_depth , parapet+height],  # Bottom-right corner
-                    [x, room_depth,parapet+height]  # Bottom-left corner
-                    ]
+                # Calculate vertices based on wall placement
+            if wall == "top":
+                vertices = [
+                        [0, y, parapet],
+                        [0, y + width, parapet],
+                        [0, y + width, parapet + height],
+                        [0, y, parapet + height]
+                ]
                     
-            # 3D Shadow as a box on the floor
-            if 'door' in name.lower():
-                shadow_vertices = [
-                            [x, room_depth,parapet],  # Top-left corner
-                            [x + width, room_depth, parapet],  # Top-right corner
-                            [x + width, room_depth , parapet+height],  # Bottom-right corner
-                            [x, room_depth,parapet+height] , # Bottom-left corner
-                            [x, room_depth-width,parapet],  # Top-left corner
-                            [x + width, room_depth-width, parapet],  # Top-right corner
-                            [x + width, room_depth-width , parapet+height],  # Bottom-right corner
-                            [x, room_depth-width,parapet+height]  # Bottom-left corner
+                # 3D Shadow as a box on the floor
+                if 'door' in name.lower():
+                    shadow_vertices = [
+                            # Bottom rectangle
+                        [0, y, parapet],
+                        [0, y + width, parapet],
+                        [0, y + width, parapet + height],
+                        [0, y, parapet + height],
+                            # Top rectangle (slightly raised)
+                        [width, y, parapet],
+                        [width, y + width, parapet],
+                        [width, y + width, parapet + height],
+                        [width, y, parapet + height],
                         ]
-
-        elif wall == "left":
-            vertices =  [
-                        [x, 0,parapet],  # Top-left corner
-                        [x + width, 0, parapet],  # Top-right corner
-                        [x + width, 0 , parapet+height],  # Bottom-right corner
-                        [x,0,parapet+height]  # Bottom-left corner
-                    ]
                 
-            # 3D Shadow as a box on the floor
-            if 'door' in name.lower():
-                shadow_vertices = [
-                        [x, 0,parapet],  # Top-left corner
-                        [x + width, 0, parapet],  # Top-right corner
-                        [x + width, 0 , parapet+height],  # Bottom-right corner
-                        [x, 0,parapet+height] , # Bottom-left corner
+            elif wall == "bottom":
+                vertices = [
+                        [room_width, y, parapet],
+                        [room_width, y + width, parapet],
+                        [room_width, y + width, parapet + height],
+                        [room_width, y, parapet + height]
+                ]
+                    
+                # 3D Shadow as a box on the floor
+                if 'door' in name.lower():
+                    # Calculate shadow vertices, 75 cm into the room
+                    shadow_vertices = [
+                        [room_width, y, parapet],
+                        [room_width, y + width, parapet],
+                        [room_width, y + width, parapet + height],
+                        [room_width, y, parapet + height],
+                        [room_width - width, y, parapet],                 # Bottom-left
+                        [room_width - width, y + width, parapet],         # Top-left
+                        [room_width - width, y + width, parapet + height], # Top-right
+                        [room_width - width, y, parapet + height]           # Bottom-right
+                        ]
+                
+            elif wall == "right":
+                vertices = [
+                        [x, room_depth,parapet],  # Top-left corner
+                        [x + width, room_depth, parapet],  # Top-right corner
+                        [x + width, room_depth , parapet+height],  # Bottom-right corner
+                        [x, room_depth,parapet+height]  # Bottom-left corner
+                        ]
                         
-                        [x, width,parapet],  # Top-left corner
-                        [x + width,width, parapet],  # Top-right corner
-                        [x + width, width , parapet+height],  # Bottom-right corner
-                        [x, width,parapet+height]  # Bottom-left corner
+                # 3D Shadow as a box on the floor
+                if 'door' in name.lower():
+                    shadow_vertices = [
+                                [x, room_depth,parapet],  # Top-left corner
+                                [x + width, room_depth, parapet],  # Top-right corner
+                                [x + width, room_depth , parapet+height],  # Bottom-right corner
+                                [x, room_depth,parapet+height] , # Bottom-left corner
+                                [x, room_depth-width,parapet],  # Top-left corner
+                                [x + width, room_depth-width, parapet],  # Top-right corner
+                                [x + width, room_depth-width , parapet+height],  # Bottom-right corner
+                                [x, room_depth-width,parapet+height]  # Bottom-left corner
+                            ]
+
+            elif wall == "left":
+                vertices =  [
+                            [x, 0,parapet],  # Top-left corner
+                            [x + width, 0, parapet],  # Top-right corner
+                            [x + width, 0 , parapet+height],  # Bottom-right corner
+                            [x,0,parapet+height]  # Bottom-left corner
                         ]
                     
-        # Draw the window or door
-        color = 'skyblue' if 'window' in name.lower() else 'brown'
-        alpha = 0.5 if 'window' in name.lower() else 1.0
-        wall_feature = Poly3DCollection([vertices], color=color, alpha=alpha, edgecolor='black')
-        ax.add_collection3d(wall_feature)
-        # Draw the 3D shadow for doors
-        if 'door' in name.lower():
-            faces = [
-                    shadow_vertices[0:4],  # Bottom face
-                    shadow_vertices[4:8],  # Top face
-                    [shadow_vertices[i] for i in [0, 1, 5, 4]],  # top face
-                    [shadow_vertices[i] for i in [1, 2, 6, 5]],  # Right face
-                    [shadow_vertices[i] for i in [2, 3, 7, 6]],  # bottom face
-                    [shadow_vertices[i] for i in [3, 0, 4, 7]],  # Left face
-            ]
-            shadow = Poly3DCollection(faces, color='grey', alpha=0.3, edgecolor='none')
-            ax.add_collection3d(shadow)
-        # Label the window/door
-        cx = sum([v[0] for v in vertices]) / 4
-        cy = sum([v[1] for v in vertices]) / 4
-        cz = sum([v[2] for v in vertices]) / 4
-        ax.text(cx, cy, cz + 10, name, color='black', ha='center', va='center')
+                # 3D Shadow as a box on the floor
+                if 'door' in name.lower():
+                    shadow_vertices = [
+                            [x, 0,parapet],  # Top-left corner
+                            [x + width, 0, parapet],  # Top-right corner
+                            [x + width, 0 , parapet+height],  # Bottom-right corner
+                            [x, 0,parapet+height] , # Bottom-left corner
+                            
+                            [x, width,parapet],  # Top-left corner
+                            [x + width,width, parapet],  # Top-right corner
+                            [x + width, width , parapet+height],  # Bottom-right corner
+                            [x, width,parapet+height]  # Bottom-left corner
+                            ]
+                        
+            # Draw the window or door
+            color = 'skyblue' if 'window' in name.lower() else 'brown'
+            alpha = 0.5 if 'window' in name.lower() else 1.0
+            wall_feature = Poly3DCollection([vertices], color=color, alpha=alpha, edgecolor='black')
+            ax.add_collection3d(wall_feature)
+            # Draw the 3D shadow for doors
+            if 'door' in name.lower():
+                faces = [
+                        shadow_vertices[0:4],  # Bottom face
+                        shadow_vertices[4:8],  # Top face
+                        [shadow_vertices[i] for i in [0, 1, 5, 4]],  # top face
+                        [shadow_vertices[i] for i in [1, 2, 6, 5]],  # Right face
+                        [shadow_vertices[i] for i in [2, 3, 7, 6]],  # bottom face
+                        [shadow_vertices[i] for i in [3, 0, 4, 7]],  # Left face
+                ]
+                shadow = Poly3DCollection(faces, color='grey', alpha=0.3, edgecolor='none')
+                ax.add_collection3d(shadow)
+            # Label the window/door
+            cx = sum([v[0] for v in vertices]) / 4
+            cy = sum([v[1] for v in vertices]) / 4
+            cz = sum([v[2] for v in vertices]) / 4
+            ax.text(cx, cy, cz + 10, name, color='black', ha='center', va='center')
 
     # visuaize placed objects
     def visualize_placed_objects(self,ax):

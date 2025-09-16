@@ -28,7 +28,15 @@ class BeamSearch:
     def set_backtracking_strategy(self, strategy):
         """Set the backtracking strategy."""
         self.backtracking_strategy = strategy
+    def layout_signature(self,layout):
+        """Create a unique signature of the layout based on placed objects."""
+        placed = layout.bathroom.get_placed_objects()
+        # sort for stability
 
+        placed_sorted = sorted(
+            [(obj["object"].object_type, round(obj["position"][0], 2), round(obj["position"][1], 2)) for obj in placed]
+        )
+        return tuple(placed_sorted)
     def generate(self, objects_to_place, windows_doors):
         """Generate layouts using beam search."""
         # Sort objects by priority
@@ -103,24 +111,77 @@ class BeamSearch:
             if not new_candidates:
                 continue
             # 
+
+            # Ellenőrizzük, hogy minden új candidate 0 score
+            all_zero_score = all(layout.score == 0 for layout in new_candidates)
+
+            if all_zero_score:
+                # Ha minden score 0, akkor nem helyezünk el új objektumot
+                continue  # beam marad változatlan
             if obj.lower() == "bathtub" or obj.lower() == "shower":
                 new_candidates = sorted(new_candidates, key=lambda x: x.score, reverse=True)
-                
-            # delete candidates with the exact same score and keep only one
+                beam = new_candidates[:30]
             else:
-                seen = {}
-                sorted_canditates = sorted(new_candidates, key=lambda x: x.score, reverse=True)
-                for layout in sorted_canditates:
-                    rounded = round(layout.score, 5)
-                    seen[rounded] = seen.get(rounded, 0) + 1
+                # Ha csak néhány score 0, azokat dobjuk el
+                new_candidates = [layout for layout in new_candidates if layout.score != 0]
+
+                # Maximális ismétlések szabályozása objektum szám alapján
+                num_objects = len(sorted_objects)  # vagy layout.requested_objects
+                if num_objects <= 3:
+                    max_repeat = 1
+                elif num_objects == 4:
+                    max_repeat = 2
+                else:
+                    max_repeat = 3  # default
+
+                # Gyűjtsük az egyedi layoutokat score és elrendezés szerint
+                seen_score = {}
+                seen_layout = {}
+                beam_temp = []
+
+                # Rendezés score szerint
+                sorted_candidates = sorted(new_candidates, key=lambda x: x.score, reverse=True)
+
+                for layout in sorted_candidates:
+                    # Score deduplikáció
+                    rounded_score = round(layout.score, 2)
+                    seen_score[rounded_score] = seen_score.get(rounded_score, 0) + 1
+                    if seen_score[rounded_score] > 1:
+                        continue  # ha túl sok layout van ugyanazzal a score-val, kihagyjuk
+
+                    # Layout deduplikáció
+                    sig = self.layout_signature(layout)
+                    count = seen_layout.get(sig, 0)
+                    if count >= max_repeat:
+                        continue  # ha már elértük az ismétlések max számát, kihagyjuk
+
+                    seen_layout[sig] = count + 1
+                    beam_temp.append(layout)
+
+                # Top 30 layout kiválasztása
+                beam = beam_temp[:30]
+
+            
+            # beam = new_candidates
+                
+            # else:
+            #     seen = {}
+            #     sorted_canditates = sorted(new_candidates, key=lambda x: x.score, reverse=True)
+            #     for layout in sorted_canditates:
+            #         print("layout score", layout.score)
+            #         rounded = round(layout.score, 2)
+            #         seen[rounded] = seen.get(rounded, 0) + 1
                     
-                    if seen[rounded] <= 2:  # Keep up to 3 layouts with the same score
-                        new_candidates.append(layout)
+            #         if seen[rounded] <= 1:  # Keep up to 3 layouts with the same score
+            #             new_candidates.append(layout)
+
+
 
             # Select top layouts for the next iteration
-            beam = sorted(new_candidates, key=lambda x: x.score, reverse=True)[:self.beam_width]
+            #beam = sorted(new_candidates, key=lambda x: x.score, reverse=True)[:30]
 
 
 
 
         return beam
+

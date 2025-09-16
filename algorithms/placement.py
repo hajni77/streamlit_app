@@ -232,7 +232,6 @@ class DefaultPlacementStrategy(PlacementStrategy):
             width, depth = corner_positions_dict_sizes[(x, y)]
             if is_valid_placement((x, y, width, depth, obj_height,corner_positions_dict[(x, y)]), placed_objects, shadow, room_width, room_depth, door_walls):
                     if not windows_doors_overlap(windows_doors, x, y, 0,width, depth, obj_height, room_width, room_depth, shadow,obj_type):
-                        
                         # Create a BathroomObject instance
                         bathroom_obj = BathroomObject(
                             object_type=obj_type,

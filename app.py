@@ -801,7 +801,7 @@ else:
                 progress_text.text(f"Generating layout {i+1}/{num_layouts}...")
                 progress_bar.progress((i / num_layouts) *0.6 )  # Use 60% of progress bar for generation
                 # generate layout using beam search, give the beam_width best layouts
-                layout_positions = BeamSearch(room, selected_objects, beam_width=20).generate(selected_objects, windows_doors)
+                layout_positions = BeamSearch(room, selected_objects, beam_width=10).generate(selected_objects, windows_doors)
  
                 # Generate a layout
                 #layout_positions = fit_objects_in_room(bathroom_size, selected_objects, windows_doors, OBJECT_TYPES, attempt=10000)
@@ -1889,22 +1889,22 @@ else:
                         else:
                             st.error("Failed to save your review. Please try again.")
                             # Design summary
-                # st.markdown("<h3 class='section-header'>Design Summary</h3>", unsafe_allow_html=True)
+                st.markdown("<h3 class='section-header'>Design Summary</h3>", unsafe_allow_html=True)
                 
-                # summary_col1, summary_col2 = st.columns(2)
+                summary_col1, summary_col2 = st.columns(2)
                 
-                # with summary_col1:
-                #     st.markdown("<h4>Room Dimensions</h4>", unsafe_allow_html=True)
-                #     st.markdown(f"Width: **{room_width} cm**")
-                #     st.markdown(f"Depth: **{room_depth} cm**")
-                #     st.markdown(f"Height: **{room_height} cm**")
-                #     st.markdown(f"Total Area: **{room_width * room_depth} cm²**")
+                with summary_col1:
+                    st.markdown("<h4>Room Dimensions</h4>", unsafe_allow_html=True)
+                    st.markdown(f"Width: **{room_width} cm**")
+                    st.markdown(f"Depth: **{room_depth} cm**")
+                    st.markdown(f"Height: **{room_height} cm**")
+                    st.markdown(f"Total Area: **{room_width * room_depth} cm²**")
                     
-                #     st.markdown("<h4>Door Details</h4>", unsafe_allow_html=True)
-                #     st.markdown(f"Position: **{selected_door_type}**")
-                #     st.markdown(f"Width: **{door_width} cm**")
-                #     st.markdown(f"Height: **{door_height} cm**")
-                #     st.markdown(f"Swing: **{selected_door_way}**")
+                    st.markdown("<h4>Door Details</h4>", unsafe_allow_html=True)
+                    st.markdown(f"Position: **{selected_door_type}**")
+                    st.markdown(f"Width: **{door_width} cm**")
+                    st.markdown(f"Height: **{door_height} cm**")
+                    st.markdown(f"Swing: **{selected_door_way}**")
             
             with review_col2:
                 st.markdown("<p><b>2D Floorplan</b></p>", unsafe_allow_html=True)
@@ -1956,7 +1956,9 @@ else:
                     st.markdown(f"<div style='text-align: left; font-size: 3rem; font-weight: bold; color: {'green' if total_score > 70 else 'orange' if total_score > 40 else 'red'};'>{total_score}</div>", unsafe_allow_html=True)
                     positions = [i['position'] for i in st.session_state.positions.bathroom.objects]
                     placed_objects = st.session_state.positions.bathroom.get_placed_objects_name()
-                    windows_doors = [st.session_state.windows_doors.position,st.session_state.windows_doors.width,st.session_state.windows_doors.height,st.session_state.windows_doors.depth,st.session_state.windows_doors.hinge,st.session_state.windows_doors.way,st.session_state.windows_doors.wall]
+                    windows_doors = []
+                    for windors_doors in st.session_state.windows_doors:
+                        windows_doors.append([windors_doors.position,windors_doors.width,windors_doors.height,windors_doors.depth,windors_doors.hinge,windors_doors.way,windors_doors.wall])
                     # Display detailed scores
                     detailed_scores = st.session_state.detailed_scores
                     for category, score in detailed_scores.items():

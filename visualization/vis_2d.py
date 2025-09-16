@@ -283,7 +283,6 @@ class Visualizer2D:
         #             ax.add_patch(arc)
 
 
-        print("for object ")
         # Draw objects
         for obj in self.objects:
             if isinstance(obj, dict):

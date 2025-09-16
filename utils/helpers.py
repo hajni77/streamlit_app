@@ -39,19 +39,19 @@ def save_data(supabase, room_sizes, positions, doors, review, is_enough_path, sp
             # Convert input data to match table schema
             review_data = {
                 "room_name": room_name or "My Bathroom Design",
-                "room_width": float(room_sizes[0]),
-                "room_depth": float(room_sizes[1]),
-                "room_height": float(room_sizes[2]),
+                "room_width": int(room_sizes[0]),
+                "room_depth": int(room_sizes[1]),
+                "room_height": int(room_sizes[2]),
                 "objects": objects,
                 "objects_positions": objects_positions,
                 "review": {
                     "text": review,
                 },
                 "doors_windows": [{
-                    "type": doors.wall,
-                    "position": {"x": doors.position[0], "y": doors.position[1]},
-                    "dimensions": {"width": doors.width, "depth": doors.depth, "height": doors.height,"wall": doors.wall, "hinge": doors.hinge, "way": doors.way}
-                } ],
+                    "type": door.wall,
+                    "position": {"x": door.position[0], "y": door.position[1]},
+                    "dimensions": {"width": door.width, "depth": door.depth, "height": door.height,"wall": door.wall, "hinge": door.hinge, "way": door.way}
+                } for door in doors ],
                 "user_id": st.session_state.user.id,
                 "room_name": room_name,
                 "calculated_reward": calculated_reward,
@@ -154,6 +154,9 @@ def convert_values(rect, shadow, wall):
             new_shadow_right = shadow_left
             new_shadow_bottom = shadow_top
         if width < depth :
+            new_shadow_right = shadow_top
+            new_shadow_bottom = shadow_right
+        if width == depth:
             new_shadow_right = shadow_top
             new_shadow_bottom = shadow_right
 
@@ -468,7 +471,7 @@ def sort_objects_by_size(object_list, room_width, room_depth):
         if "sink" in object_list[1] or "Sink" in object_list[1]:
             object_list = object_list[::-1]
     
-    objects_list_priority = ["bathtub", "shower", "asymmetrical bathtub", "toilet", "toilet bidet","double sink", "sink", "washing machine", "washing dryer",  "cabinet", "washing machine dryer"]
+    objects_list_priority = ["bathtub", "shower", "asymmetrical bathtub", "double sink", "sink","toilet", "toilet bidet", "washing machine", "washing dryer",  "cabinet", "washing machine dryer"]
     # sort object_list by priority
     object_list.sort(key=lambda obj: objects_list_priority.index(obj) if obj in objects_list_priority else len(objects_list_priority), reverse=False)
     return object_list
@@ -1345,3 +1348,39 @@ def windows_doors_overlap(windows_doors, x, y, z, width, depth, height, room_wid
 #         for y in range(grid_depth):
 #             if grid[x][y] == 0 and not visited[x][y]:
 #                 return True  # Found an enclosed space
+
+def has_free_side(shower, objects, min_clearance=None):
+    """
+    shower: (x, y, w, h)
+    objects: list of (x, y, w, h, name)
+    min_clearance: opcionális, alapból w/2 vagy h/2
+    """
+    x, y, w, h = shower
+    clearance = min_clearance if min_clearance else min(w, h) / 2
+
+    # Függvény a doboz ütközés ellenőrzésére
+    def intersects(a, b):
+        ax, ay, aw, ah = a
+        bx, by, bw, bh = b
+        return not (ax+aw <= bx or bx+bw <= ax or ay+ah <= by or by+bh <= ay)
+
+    # Ellenőrizni kell minden oldalra
+    directions = {
+        "left":   (x-clearance, y, clearance, h),
+        "right":  (x+w, y, clearance, h),
+        "top":    (x, y-clearance, w, clearance),
+        "bottom": (x, y+h, w, clearance),
+    }
+
+    for side, area in directions.items():
+        blocked = False
+        for ox, oy, ow, oh, name in objects:
+            if intersects(area, (ox, oy, ow, oh)):
+                # ha a blokk mélysége >= shower mélysége → blokkolt
+                if oh >= h and ow >= w:
+                    blocked = True
+                    break
+        if not blocked:
+            return True  # legalább egy oldal szabad
+
+    return False

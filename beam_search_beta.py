@@ -145,6 +145,7 @@ def generate_placement_options(obj_type, obj_def, bathroom_size, placed_objects,
                 for y in range(shadow[2], room_depth - obj_width - shadow[3], 20):
                     if is_valid_placement((x, y, obj_width, obj_depth), placed_objects, shadow, room_width, room_depth):
                         if not windows_doors_overlap(windows_doors, x, y, 0, obj_width, obj_depth, room_width, room_depth, shadow):
+                            
                             options.append({
                                 "object": (x, y, obj_width, obj_depth, shadow),
                                 "position": (x, y, obj_width, obj_depth, obj_height, obj_def['name'], 

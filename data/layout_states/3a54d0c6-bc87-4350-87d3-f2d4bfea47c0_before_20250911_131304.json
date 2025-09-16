@@ -1,0 +1,33 @@
+{
+  "timestamp": "2025-09-11T13:13:04.178854",
+  "request": {
+    "id": "3a54d0c6-bc87-4350-87d3-f2d4bfea47c0",
+    "room_width": 247.99999999999997,
+    "room_depth": 240.00000000000028,
+    "room_height": 280.0,
+    "objects_to_place": [
+      "Bathtub",
+      "Sink",
+      "Shower",
+      "Toilet"
+    ],
+    "windows_doors": [
+      {
+        "name": "door",
+        "wall": "right",
+        "position": [
+          135.0,
+          240.0
+        ],
+        "width": 75.0,
+        "depth": 5.0,
+        "height": 275.0,
+        "hinge": "left",
+        "way": "inward"
+      }
+    ],
+    "beam_width": 5
+  },
+  "bathroom": "<models.bathroom.Bathroom object at 0x0000022775988B10>",
+  "windows_doors": "[WindowsDoors(name='door', wall='right', position=(135.0, 240.0), width=75.0, depth=5.0, height=275.0, hinge='left', way='inward')]"
+}

@@ -30,7 +30,7 @@ streamlit
 # numpy
 # pandas
 # matplotlib
-# pydrive
+# # pydrive
 # firebase-admin
 # psycopg2-binary
 # python-dotenv
