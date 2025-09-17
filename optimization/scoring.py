@@ -537,13 +537,13 @@ class BathroomScoringFunction(BaseScoringFunction):
         
         total_score += scores["opposite_walls_distance"]
 
-        # check minimal space for shower
-        if shower_count > 0:
-            has_enough_space_shower = check_minimal_space_for_shower(placed_objects, (room_width, room_depth, room_height))
-            if has_enough_space_shower:
-                scores["shower_space"] = 10
-            else:
-                scores["shower_space"] = 0
+        # # check minimal space for shower
+        # if shower_count > 0:
+        #     has_enough_space_shower = check_minimal_space_for_shower(placed_objects, (room_width, room_depth, room_height))
+        #     if has_enough_space_shower:
+        #         scores["shower_space"] = 10
+        #     else:
+        #         scores["shower_space"] = 0
         
         # Critical constraints check - if any critical constraint is violated, score is 0
         if (scores["no_overlap"] == 0 or 
