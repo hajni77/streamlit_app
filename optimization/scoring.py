@@ -465,7 +465,13 @@ class BathroomScoringFunction(BaseScoringFunction):
         
         # Normalize door_sink_score
         door_sink_score = door_sink_score / 15 * 10
-        
+        # check minimal space for shower
+        if shower_count > 0:
+            has_enough_space_shower = has_free_side(shower_rect, objects_rect)
+            if has_enough_space_shower:
+                scores["shower_space"] = 10
+            else:
+                scores["shower_space"] = 0
         # Add all scores to the scores dictionary
         scores["wall_corner_constraints"] = wall_corner_score
         #scores["wall_coverage"] = min(wall_coverage_score, 10)
@@ -510,6 +516,7 @@ class BathroomScoringFunction(BaseScoringFunction):
         total_score += scores["hidden_sink"]
         total_score += scores["not_enough_space"]
         total_score += scores["enclosed_spaces"]
+        total_score += scores["shower_space"]
         
         # Calculate average free space for sinks and toilets
         avg_sink_space = sink_space / sink_count if sink_count > 0 else 0
@@ -538,13 +545,7 @@ class BathroomScoringFunction(BaseScoringFunction):
         
         total_score += scores["opposite_walls_distance"]
 
-        # check minimal space for shower
-        if shower_count > 0:
-            has_enough_space_shower = has_free_side(shower_rect, objects_rect)
-            if has_enough_space_shower:
-                scores["shower_space"] = 10
-            else:
-                scores["shower_space"] = 0
+
         
         # Critical constraints check - if any critical constraint is violated, score is 0
         if (scores["no_overlap"] == 0 or 

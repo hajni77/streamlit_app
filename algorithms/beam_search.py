@@ -64,11 +64,9 @@ class BeamSearch:
                     sorted_objects.remove('double sink')
                     layout.requested_objects.remove('double sink')
                     #place the sink first
-                    print("sorted_objects", sorted_objects)
 
                     sorted_objects.insert(0, "sink")
                     layout.requested_objects.insert(0, "sink")
-                    print("sorted_objects", sorted_objects)
                     
                     placement_options = self.placement_strategy.generate_options(
                         layout, "sink", obj_def, self.bathroom.get_size(), layout.bathroom.get_placed_objects(), windows_doors

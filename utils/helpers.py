@@ -1349,14 +1349,14 @@ def windows_doors_overlap(windows_doors, x, y, z, width, depth, height, room_wid
 #             if grid[x][y] == 0 and not visited[x][y]:
 #                 return True  # Found an enclosed space
 
-def has_free_side(rect, objects, min_clearance=None):
+def has_free_side(rect, objects, min_clearance=60):
     """
     shower: (x, y, w, h)
     objects: list of (x, y, w, h, name)
     min_clearance: opcionális, alapból w/2 vagy h/2
     """
     x, y, w, d = rect
-    clearance = min_clearance if min_clearance else min(w, d) / 2
+    clearance = min_clearance
 
     # Függvény az ütközés ellenőrzésére
     def intersects(a, b):
@@ -1388,7 +1388,7 @@ def has_free_side(rect, objects, min_clearance=None):
                     blocked = True
                     break
                 
-        i += 1      
+            i += 1      
         if not blocked:
             return True  # legalább egy oldal szabad
 
