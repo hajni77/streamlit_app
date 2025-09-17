@@ -471,7 +471,7 @@ def sort_objects_by_size(object_list, room_width, room_depth):
         if "sink" in object_list[1] or "Sink" in object_list[1]:
             object_list = object_list[::-1]
     
-    objects_list_priority = ["bathtub", "shower", "asymmetrical bathtub", "double sink", "sink","toilet", "toilet bidet", "washing machine", "washing dryer",  "cabinet", "washing machine dryer"]
+    objects_list_priority = ["bathtub", "shower", "asymmetrical bathtub", "toilet bidet","double sink", "sink","toilet", "washing machine", "washing dryer",  "cabinet", "washing machine dryer"]
     # sort object_list by priority
     object_list.sort(key=lambda obj: objects_list_priority.index(obj) if obj in objects_list_priority else len(objects_list_priority), reverse=False)
     return object_list
@@ -1349,37 +1349,46 @@ def windows_doors_overlap(windows_doors, x, y, z, width, depth, height, room_wid
 #             if grid[x][y] == 0 and not visited[x][y]:
 #                 return True  # Found an enclosed space
 
-def has_free_side(shower, objects, min_clearance=None):
+def has_free_side(rect, objects, min_clearance=None):
     """
     shower: (x, y, w, h)
     objects: list of (x, y, w, h, name)
     min_clearance: opcionális, alapból w/2 vagy h/2
     """
-    x, y, w, h = shower
-    clearance = min_clearance if min_clearance else min(w, h) / 2
+    x, y, w, d = rect
+    clearance = min_clearance if min_clearance else min(w, d) / 2
 
-    # Függvény a doboz ütközés ellenőrzésére
+    # Függvény az ütközés ellenőrzésére
     def intersects(a, b):
-        ax, ay, aw, ah = a
-        bx, by, bw, bh = b
-        return not (ax+aw <= bx or bx+bw <= ax or ay+ah <= by or by+bh <= ay)
+        ax, ay, aw, ad = a
+        bx, by, bw, bd = b
+        return not (ax+ad <= bx or bx+bd <= ax or ay+aw <= by or by+bw <= ay)
 
     # Ellenőrizni kell minden oldalra
     directions = {
-        "left":   (x-clearance, y, clearance, h),
-        "right":  (x+w, y, clearance, h),
-        "top":    (x, y-clearance, w, clearance),
-        "bottom": (x, y+h, w, clearance),
+        "left":   (x, y-clearance, clearance, d),
+        "right":  (x, y+w, clearance, d),
+        "top":    (x-clearance, y, w, clearance),
+        "bottom": (x+d, y, w, clearance),
     }
-
+    i = 0
     for side, area in directions.items():
         blocked = False
-        for ox, oy, ow, oh, name in objects:
-            if intersects(area, (ox, oy, ow, oh)):
+
+        for ox, oy, ow, od in objects:
+            if intersects(area, (ox, oy, ow, od)):
                 # ha a blokk mélysége >= shower mélysége → blokkolt
-                if oh >= h and ow >= w:
+                if od >= d/2 and ow >= w/2:
                     blocked = True
                     break
+                elif od >= d/2 and (i ==0 or i ==1):
+                    blocked = True
+                    break
+                elif ow >= w/2 and (i ==2 or i ==3):
+                    blocked = True
+                    break
+                
+        i += 1      
         if not blocked:
             return True  # legalább egy oldal szabad
 
