@@ -61,9 +61,9 @@
     "toilet bidet": {
       "name": "Toilet Bidet",
       "must_be_corner": false,
-      "shadow_space": [60,30,30,0],
+      "shadow_space": [60,10,10,0],
       "size_range": [75, 140, 60, 70, 40, 50],
-      "optimal_size": [75, 65, 40],
+      "optimal_size": [100, 65, 40],
       "must_be_against_wall": true,
       "priority": 3
     },

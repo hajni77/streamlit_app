@@ -176,7 +176,7 @@ class BathroomScoringFunction(BaseScoringFunction):
         available_space = identify_available_space(placed_objects, (room_width, room_depth), grid_size=1, windows_doors=windows_doors)
         available_space_without_shadow = available_space['without_shadow']
 
-        # check enclosed spaces
+        # 0. check enclosed spaces
         if check_enclosed_spaces(available_space_without_shadow, room_width, room_depth):
             scores["enclosed_spaces"] = 0
         else:
@@ -516,7 +516,8 @@ class BathroomScoringFunction(BaseScoringFunction):
         total_score += scores["hidden_sink"]
         total_score += scores["not_enough_space"]
         total_score += scores["enclosed_spaces"]
-        total_score += scores["shower_space"]
+        if shower_count > 0:
+            total_score += scores["shower_space"]
         
         # Calculate average free space for sinks and toilets
         avg_sink_space = sink_space / sink_count if sink_count > 0 else 0
