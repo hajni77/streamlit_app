@@ -11,7 +11,7 @@ gymnasium==1.2.1
 stable-baselines3==2.7.0
 
 # TensorFlow-related fixes (for compatibility with other libs)
-tensorflow-intel==2.16.1
+tensorflow==2.16.1
 ml-dtypes==0.3.2
 protobuf<5.0
 tensorboard<2.17,>=2.16
