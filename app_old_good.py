@@ -999,7 +999,6 @@ else:
             # Calculate layout score
             progress_text.text("Evaluating layout quality...")
             total_score, detailed_scores = evaluate_room_layout(positions, (room_width, room_depth), OBJECT_TYPES, windows_doors, selected_object)
-            print("total score", total_score)
             st.session_state.total_score = total_score
             st.session_state.detailed_scores = detailed_scores
 

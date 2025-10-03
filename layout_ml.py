@@ -6,6 +6,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
+from models.object import BathroomObject
 
 class LayoutPreferenceModel:
     """
@@ -29,7 +30,7 @@ class LayoutPreferenceModel:
         # Try to load an existing model if available
         self.load_model()
     
-    def extract_features(self, layout, detailed_scores, metrics):
+    def extract_features(self, layout, detailed_scores, metrics, objects=None):
         """
         Extract features from a layout for model training/prediction.
         
@@ -41,11 +42,13 @@ class LayoutPreferenceModel:
         Returns:
             dict: Dictionary of features
         """
+        placed = metrics.get('placed_percentage', 0)
+        space = metrics.get('space_efficiency', 0)
         # Basic layout features
         features = {
-            'num_objects': len(layout),
-            'placed_percentage': metrics.get('placed_percentage', 0),
-            'space_efficiency': metrics.get('space_efficiency', 0),
+            'num_objects': len(objects) if objects is not None else 0,
+            'placed_percentage': placed,
+            'space_efficiency': space,
         }
         
         # Add all detailed scores as features
@@ -53,20 +56,38 @@ class LayoutPreferenceModel:
             features[f'score_{score_name}'] = score_value
             
         # Extract object-specific features
-        object_types = set(obj[5] for obj in layout)
+        # Handle different potential structures of layout
+        if hasattr(layout, 'bathroom') and hasattr(layout.bathroom, 'objects'):
+            print(layout.bathroom.objects)
+            # Take only bathroomobject from list
+            bathroom_objects = [obj for obj in layout.bathroom.objects if isinstance(obj, BathroomObject)]
+        else:
+            # If no bathroom objects are available, use an empty list
+            print("No bathroom objects available")
+            bathroom_objects = []
+        
+        object_types = set(obj.name for obj in bathroom_objects)
         for obj_type in ['Toilet', 'Sink', 'Double Sink', 'Bathtub', 'Shower']:
             features[f'has_{obj_type.lower().replace(" ", "_")}'] = 1 if obj_type in object_types else 0
             
         # Calculate average distances between objects
-        if len(layout) > 1:
+        if len(bathroom_objects) > 1:
             distances = []
-            for i, obj1 in enumerate(layout):
-                for j, obj2 in enumerate(layout[i+1:], i+1):
-                    x1, y1 = obj1[0], obj1[1]
-                    x2, y2 = obj2[0], obj2[1]
+            for i, obj1 in enumerate(bathroom_objects):
+                for j, obj2 in enumerate(bathroom_objects[i+1:], i+1):
+                    pos1 = getattr(obj1, "position", None)
+                    pos2 = getattr(obj2, "position", None)
+                    
+                    # Skip if either object doesn't have a position
+                    if pos1 is None or pos2 is None:
+                        continue
+                    
+                    x1, y1 = pos1
+                    x2, y2 = pos2
+                    
                     distance = np.sqrt((x2 - x1)**2 + (y2 - y1)**2)
                     distances.append(distance)
-            
+                    print("distance", distance)
             features['avg_object_distance'] = np.mean(distances) if distances else 0
             features['min_object_distance'] = np.min(distances) if distances else 0
             features['max_object_distance'] = np.max(distances) if distances else 0
@@ -89,9 +110,22 @@ class LayoutPreferenceModel:
         """
         # Extract features for all layouts
         features_list = []
-        print(type(all_layouts))
-        for i, (layout, score, detailed_scores) in enumerate(all_layouts):
-            features = self.extract_features(layout, detailed_scores, layout_metrics[i])
+        for i, layout_item in enumerate(all_layouts):
+            # Check if the layout_item is already a Layout object or a tuple
+            if hasattr(layout_item, 'score') and hasattr(layout_item, 'score_breakdown'):
+                # It's a Layout object
+                layout = layout_item
+                score = layout.score
+                detailed_scores = layout.score_breakdown
+            else:
+                # Assume it's a tuple (layout, score, detailed_scores)
+                try:
+                    layout, score, detailed_scores = layout_item
+                except (ValueError, TypeError):
+                    print(f"Warning: Could not unpack layout item at index {i}. Skipping.")
+                    continue
+            
+            features = self.extract_features(layout, detailed_scores, layout_metrics[i], layout.requested_objects if hasattr(layout, 'requested_objects') else [])
             features['layout_idx'] = i
             features['overall_score'] = score
             features['selected'] = 1 if i == selected_layout_idx else 0
@@ -158,14 +192,16 @@ class LayoutPreferenceModel:
         Returns:
             int: Index of the predicted best layout
         """
-        if self.model is None:
-            # If no model is trained yet, return the highest scoring layout
-            return max(range(len(all_scores)), key=lambda i: all_scores[i][1])
+        # if self.model is None:
+        #     # If no model is trained yet, return the highest scoring layout
+        #     return max(range(len(all_scores)), key=lambda i: all_scores[i][1])
         
         # Extract features for all layouts
         features_list = []
-        for i, (layout, score, detailed_scores) in enumerate(all_scores):
-            features = self.extract_features(layout, detailed_scores, layout_metrics[i])
+        for i, layout in enumerate(all_layouts):
+            detailed_scores = layout.score_breakdown if hasattr(layout, 'score_breakdown') else {}
+            objects = layout.requested_objects if hasattr(layout, 'requested_objects') else []
+            features = self.extract_features(layout, detailed_scores, layout_metrics[i], objects)
             features_list.append(features)
         
         # Convert to DataFrame with consistent columns
@@ -190,7 +226,8 @@ class LayoutPreferenceModel:
             best_idx = np.argmax(proba[:, 1])
         else:
             best_idx = 0
-            
+        print("ML model returned:", best_idx, type(best_idx))
+
         return best_idx
     
     def save_model(self):

@@ -1,14 +1,20 @@
 import sys
 import os
 import math
+import uuid
+import time
 
 # Add the project root to the path so we can import from other modules
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from utils.timing_logger import TimingContext
+
 from utils.helpers import check_overlap, check_euclidean_distance, is_corner_placement_sink
 from utils.helpers import get_opposite_wall, windows_doors_overlap, calculate_space_before_object, check_opposite_walls_distance, calculate_behind_door_space, calculate_overlap_area, calculate_before_door_space, has_free_side
 from algorithms.available_space import identify_available_space
-from algorithms.available_space import check_enclosed_spaces
+from algorithms.available_space import check_enclosed_spaces, check_corner_accessibility
+from models.layout import Layout
+from typing import Tuple, List
 class BaseScoringFunction:
     """Base class for room layout scoring functions."""
     
@@ -30,9 +36,7 @@ class BaseScoringFunction:
     #         float: Total score
     #         dict: Breakdown of scores by category
     #     """
-    #     # Base implementation returns 0
-    #     self.total_score, self.score_breakdown = self.score(layout, room_sizes, windows_doors, requested_objects)
-    #     return self.total_score, self.score_breakdown
+
 
     def evaluate(self, layout, windows_doors=None, requested_objects=None):
         """Evaluate the layout using the provided scoring function.
@@ -57,7 +61,7 @@ class BathroomScoringFunction(BaseScoringFunction):
     def __init__(self, room_type="bathroom"):
         super().__init__(room_type)
 
-    def evaluate(self, layout, requested_objects=None,windows_doors=None ):
+    def evaluate(self, layout, requested_objects=None, windows_doors=None ):
         """Evaluate the layout using the provided scoring function.
         
         Args:
@@ -69,7 +73,28 @@ class BathroomScoringFunction(BaseScoringFunction):
         Returns:f
             float: Total score
         """
-        self.total_score, self.score_breakdown = self.score(layout)
+        # Generate a unique ID for this scoring process
+        layout_id = str(uuid.uuid4())[:8]
+        
+        # Extract room dimensions for logging
+        try:
+            room_size = None
+            if hasattr(layout, "bathroom") and hasattr(layout.bathroom, "get_size"):
+                room_size = layout.bathroom.get_size()[:2]  # Just width and depth
+                
+            # Count objects for logging
+            num_objects = 0
+            if hasattr(layout, "bathroom") and hasattr(layout.bathroom, "get_placed_objects"):
+                placed_objects = layout.bathroom.get_placed_objects()
+                num_objects = len(placed_objects) if placed_objects else 0
+                
+            with TimingContext("layout_scoring", layout_id=layout_id, room_size=room_size, num_objects=num_objects) as tc:
+                self.total_score, self.score_breakdown = self.score(layout)
+                tc.add_info({"total_score": self.total_score})
+        except Exception as e:
+            # Fallback if something goes wrong with timing
+            print(f"Timing error: {str(e)}")
+            self.total_score, self.score_breakdown = self.score(layout)
 
           
     def _extract_object_properties(self, obj):
@@ -135,6 +160,44 @@ class BathroomScoringFunction(BaseScoringFunction):
         # Can't extract properties
         return None
         
+    def _extract_layout_data(self, layout: Layout) -> Tuple[List[dict], List[dict], Tuple[int, int, int], List[str]]:
+        """
+        Extract and validate layout information required for scoring.
+
+        Args:
+            layout (Any): Layout object that must contain a bathroom with placed_objects, windows/doors,
+                          and provide dimensions (width, depth, height).
+
+        Returns:
+            placed_objects (List[dict]): List of placed objects in the bathroom.
+            windows_doors (List[dict]): List of windows and doors.
+            room_size (Tuple[int, int, int]): (width, depth, height) of the room.
+            requested_objects (List[str]): Objects the user requested to be placed.
+
+        Raises:
+            ValueError: If required attributes are missing in the layout.
+        """
+        if not hasattr(layout, "bathroom"):
+            raise ValueError("Layout object must have a 'bathroom' attribute.")
+
+        bathroom = layout.bathroom
+
+        # Validate required methods/attributes in bathroom
+        if not hasattr(bathroom, "get_placed_objects") or not callable(bathroom.get_placed_objects):
+            raise ValueError("Bathroom object must implement 'get_placed_objects()'.")
+        if not hasattr(bathroom, "windows_doors"):
+            raise ValueError("Bathroom object must have 'windows_doors' attribute.")
+        if not hasattr(bathroom, "get_size") or not callable(bathroom.get_size):
+            raise ValueError("Bathroom object must implement 'get_size()'.")
+
+        placed_objects = bathroom.get_placed_objects() or []
+        windows_doors = getattr(bathroom, "windows_doors", []) or []
+        room_size = bathroom.get_size()  # Expecting (width, depth, height)
+
+        requested_objects = getattr(layout, "requested_objects", []) or []
+
+        return placed_objects, windows_doors, room_size, requested_objects
+
     def _get_corners(self, x, y, width, depth):
         """Get the four corners of a rectangular object."""
         return [
@@ -163,60 +226,13 @@ class BathroomScoringFunction(BaseScoringFunction):
             float: Total score
             dict: Breakdown of scores by category
         """
-        placed_objects = layout.bathroom.get_placed_objects()
-        windows_doors = layout.bathroom.windows_doors
-        room_width, room_depth, room_height = layout.bathroom.get_size()
-        requested_objects = layout.requested_objects  
+        placed_objects, windows_doors, (room_width, room_depth, room_height), requested_objects = (
+            self._extract_layout_data(layout)
+        )
         total_score = 0
         scores = {}
         
 
-
-        # # check space
-        available_space = identify_available_space(placed_objects, (room_width, room_depth), grid_size=1, windows_doors=windows_doors)
-        available_space_without_shadow = available_space['without_shadow']
-
-        # 0. check enclosed spaces
-        if check_enclosed_spaces(available_space_without_shadow, room_width, room_depth):
-            scores["enclosed_spaces"] = 0
-        else:
-            scores["enclosed_spaces"] = 10
-
-
-        # 1. Check for overlapping objects (critical constraint)
-        no_overlap_score = 10
-        # Check for overlaps between objects
-        for i, obj in enumerate(placed_objects):
-            x = obj["object"].position[0]
-            y = obj["object"].position[1]
-            width = obj["object"].width
-            depth = obj["object"].depth
-            height = obj["object"].height
-            shadow = obj["object"].shadow
-            name = obj["object"].name
-            wall = obj["object"].wall
-            
-            # Check for overlaps with other objects
-            for j in range(i + 1, len(placed_objects)):
-                other_obj = placed_objects[j]
-                other_x = other_obj["object"].position[0]
-                other_y = other_obj["object"].position[1]
-                other_width = other_obj["object"].width
-                other_depth = other_obj["object"].depth
-                other_height = other_obj["object"].height
-                
-                if check_overlap((x, y, width, depth,height), (other_x, other_y, other_width, other_depth,other_height)):
-                    no_overlap_score = 0
-                    break
-            
-            # Check for overlaps with windows and doors
-
-            if windows_doors and windows_doors_overlap(windows_doors, x, y, 0,width, depth, height, room_width, room_depth, shadow,name):
-                no_overlap_score = 0
-
-        scores["no_overlap"] = no_overlap_score
-        total_score += scores["no_overlap"]
-        
         # Initialize all scoring variables at once
         wall_corner_score = 10  # Start with max score, reduce if constraints violated
         wall_coverage = {"top": 0, "bottom": 0, "left": 0, "right": 0}
@@ -238,11 +254,38 @@ class BathroomScoringFunction(BaseScoringFunction):
         objects_rect = []
         shadow_score = 0
         bathtub_placement_score = 0
+        bathtub_size_score = 0
         hidden_sink_score = 10
         not_enough_space = 10
-        # 5. Door Position Constraints
+        no_overlap_score = 10
         opposite_wall = ""
-        behind_door_space = None
+        behind_door_space = []
+        before_door_space = []
+        bathtub_count = 0
+        spacing_score = len(placed_objects) * 10
+        # # check space
+
+
+        # 0. check enclosed spaces
+        available_space = identify_available_space(placed_objects, (room_width, room_depth), grid_size=1, windows_doors=windows_doors)
+        available_space_without_shadow = available_space['without_shadow']
+        # if check_enclosed_spaces(available_space_without_shadow, room_width, room_depth, min_distance=60, door_position=()):
+        #     scores["enclosed_spaces"] = 0
+        # else:
+        #     scores["enclosed_spaces"] = 10
+        
+        # # 0b. Check corner accessibility (all corners must be occupied or accessible via 60cm pathway)
+        # corners_valid, corner_status = check_corner_accessibility(placed_objects, room_width, room_depth, min_path_width=60)
+        # if corners_valid:
+        #     scores["corner_accessibility"] = 10
+        # else:
+        #     scores["corner_accessibility"] = 0
+            # Penalty for inaccessible corners
+            # invalid_corners = [name for name, status in corner_status.items() if not status['valid']]
+            # print(f"Invalid corners: {invalid_corners}")  # Debug info
+       
+        # 5. Door Position Constraints
+
         if windows_doors:
             for door_window in windows_doors:
                 if door_window.name.startswith("door"):
@@ -252,33 +295,32 @@ class BathroomScoringFunction(BaseScoringFunction):
                     door_y = door_window.position[1]
                     door_depth = door_window.depth
                     door_wall = door_window.wall
-                    
+                    # if check_enclosed_spaces(available_space_without_shadow, room_width, room_depth, min_distance=60, door_position=(door_wall, door_x, door_y, door_width)):
+                    #     scores["enclosed_spaces"] = 0
+                    # else:
+                    #     scores["enclosed_spaces"] = 10
                     hinge = door_window.hinge
                     
                     opposite_wall = get_opposite_wall(door_wall)
-                    behind_door_space = calculate_behind_door_space(door_x, door_y, door_width, door_depth, door_wall,hinge,room_width, room_depth)
-                    before_door_space = calculate_before_door_space(door_x, door_y, door_width, door_depth, door_wall,hinge,room_width, room_depth)
+                    behind_door_space.append(calculate_behind_door_space(door_x, door_y, door_width, door_depth, door_wall,hinge,room_width, room_depth))
+                    before_door_space.append(calculate_before_door_space(door_x, door_y, door_width, door_depth, door_wall,hinge,room_width, room_depth))
         # Process all objects in a single loop to collect data for multiple metrics
-        for obj in placed_objects:
-            x = obj["object"].position[0]
-            y = obj["object"].position[1]
-            width = obj["object"].width
-            depth = obj["object"].depth
-            height = obj["object"].height
-            shadow = obj["object"].shadow
-            name = obj["object"].name
-            wall = obj["object"].wall
+        for i,obj in enumerate(placed_objects):
+            obj = obj["object"]
+            x = obj.position[0]
+            y = obj.position[1]
+            width = obj.width
+            depth = obj.depth
+            height = obj.height
+            shadow = obj.shadow
+            name = obj.name
+            wall = obj.wall
             objects_rect.append((x, y, width, depth))
             if name.lower() == "shower":
                 shower_count += 1
                 shower_rect = (x, y, width, depth)
-            # # 2. Wall and Corner Constraints
-            # if must_be_against_wall and wall == "middle":
-            #     wall_corner_score = 0  # Zero points if wall constraint violated
-            
-            # if must_be_corner and wall not in ["top-left", "top-right", "bottom-left", "bottom-right"]:
-            #     wall_corner_score = 0  # Zero points if corner constraint violated
-            
+            if name.lower() == "bathtub":
+                bathtub_count += 1
             # 3. Wall Coverage
             if wall == "top-left":
                 wall_coverage["top"] += width
@@ -295,56 +337,59 @@ class BathroomScoringFunction(BaseScoringFunction):
             else:
                 if wall in wall_coverage:
                     wall_coverage[wall] += width if wall in ["top", "bottom"] else depth
-            
+            if windows_doors and windows_doors_overlap(windows_doors, x, y, 0,width, depth, height, room_width, room_depth, shadow,name):
+                no_overlap_score = 0
             # 4. Corner Coverage
             for corner in corners:
                 if is_corner_placement_sink(x, y, room_width, room_depth, width, depth):
                     corner_objects[corner].append(obj)
             if check_overlap(before_door_space, (x, y, width, depth )):
+                
                 overlap = calculate_overlap_area(before_door_space, (x, y, width, depth))
-                if overlap > door_width*door_width-3600:
-                    not_enough_space = -50
+                # if overlap > door_width*door_width-3600:
+                #     not_enough_space = -50
                 if name.lower() == "bathtub":
                     not_enough_space = 10
-            # 5. Door Position Constraints
-            # if windows_doors:
-                
-            #     door_width = windows_doors.width
-            #     door_height = windows_doors.height
-            #     door_x = windows_doors.position[0]
-            #     door_y = windows_doors.position[1]
-            #     door_depth = windows_doors.depth
-            #     door_wall = windows_doors.wall
-                
-            #     hinge = windows_doors.hinge
-                
-            #     opposite_wall = get_opposite_wall(door_wall)
-            #     behind_door_space = calculate_behind_door_space(door_x, door_y, door_width, door_depth, door_wall,hinge,room_width, room_depth)
 
-                # Sink placement relative to door
+            # Sink placement relative to door
             if name.lower() in ["sink", "double sink"]:
                     if wall == opposite_wall:
                         sink_score += 10  # Reward sink opposite door
-                        # Check if sink is symmetrically placed relative to door
-                        if (door_wall == "top" or door_wall == "bottom"):
-                            if (door_y +door_width <= y+width and door_y >= y):
-                                sink_symmetrial_door_score += 10
-                        elif (door_wall == "left" or door_wall == "right"):
-                            if (door_x + door_depth <= x+depth and door_x >= x):
-                                sink_symmetrial_door_score += 10
-                    if check_overlap(behind_door_space, (x, y, width, depth)):
-                        if door_wall != wall:
-                            overlap = calculate_overlap_area(behind_door_space, (x, y, width, depth))
-                            if overlap:
-                                hidden_sink_score = -20
-                        if door_wall == wall:
-                            hidden_sink_score -= 20
-                    elif door_wall != wall:
-                        door_sink_score += 5
-                        # Check distance from door to sink
-                        if check_euclidean_distance((door_x, door_y, door_width, door_depth), 
-                                                  (x, y, width, depth)) < 200:
-                            door_sink_distance_score += 10
+                        if windows_doors:
+                            for door_window in windows_doors:
+                                if door_window.name.startswith("door"):
+                                    door_width = door_window.width
+                                    door_height = door_window.height
+                                    door_x = door_window.position[0]
+                                    door_y = door_window.position[1]
+                                    door_depth = door_window.depth
+                                    door_wall = door_window.wall
+                                    
+                                    hinge = door_window.hinge
+                                    
+                                    opposite_wall = get_opposite_wall(door_wall)
+                                    behind_door_space_single = calculate_behind_door_space(door_x, door_y, door_width, door_depth, door_wall,hinge,room_width, room_depth)
+                                    before_door_space_single = calculate_before_door_space(door_x, door_y, door_width, door_depth, door_wall,hinge,room_width, room_depth)
+                                    # Check if sink is symmetrically placed relative to door
+                                    if (door_wall == "top" or door_wall == "bottom"):
+                                        if (door_y +door_width <= y+width and door_y >= y):
+                                            sink_symmetrial_door_score += 10
+                                    elif (door_wall == "left" or door_wall == "right"):
+                                        if (door_x + door_depth <= x+depth and door_x >= x):
+                                            sink_symmetrial_door_score += 10
+                                    if check_overlap(behind_door_space_single, (x, y, width, depth)):
+                                        if door_wall != wall:
+                                            overlap = calculate_overlap_area(behind_door_space_single, (x, y, width, depth))
+                                            if overlap:
+                                                hidden_sink_score = -20
+                                        if door_wall == wall:
+                                            hidden_sink_score -= 20
+                                    elif door_wall != wall:
+                                        door_sink_score += 5
+                                        # Check distance from door to sink
+                                        if check_euclidean_distance((door_x, door_y, door_width, door_depth), 
+                                                                (x, y, width, depth)) < 200:
+                                            door_sink_distance_score += 10
 
 
                 # Toilet placement relative to door
@@ -370,7 +415,7 @@ class BathroomScoringFunction(BaseScoringFunction):
                         if door_wall == wall:
                             door_sink_score += 5  # Reward toilet on same wall as door (hidden)
                         if check_overlap(before_door_space, (x, y, width, depth)):
-                            toilet_to_door_score += -40
+                            toilet_to_door_score += -10
                         if check_overlap(behind_door_space, (x, y, width, depth)):
                             overlap = calculate_overlap_area(behind_door_space, (x, y, width, depth))
                             if overlap == width*depth:
@@ -380,18 +425,10 @@ class BathroomScoringFunction(BaseScoringFunction):
                             elif door_wall == wall:
                                 toilet_to_door_score += 10
 
-                        
-            # # 6. Toilet in corner (preferred placement)
-            # if name.lower() in ["toilet", "toilet bidet"]:
-            #     if wall in ["top-left", "top-right", "bottom-left", "bottom-right"]:
-            #         corner_toilet_score = 10
-            #     else:
-            #         corner_toilet_score = 0
-                    
-            #     # 11. Free space in front of key fixtures - toilet
-            #     space = calculate_space_before_object(obj, placed_objects, (room_width, room_depth, room_height))
-            #     toilet_space += space
-            #     toilet_count += 1
+            
+            scores["no_overlap"] = no_overlap_score
+            total_score += scores["no_overlap"]         
+
                 
 
                 
@@ -416,12 +453,36 @@ class BathroomScoringFunction(BaseScoringFunction):
                         bathtub_placement_score = 0
                 else:
                     bathtub_placement_score = 10
+                if ((width >= 140) or (depth >= 140)):
+                    bathtub_size_score = 10
+                else:
+                    bathtub_size_score = 0
                     
             # 11. Free space in front of key fixtures - sink
             if name.lower() in ["sink", "double sink"]:
                 space = calculate_space_before_object(obj, placed_objects, (room_width, room_depth, room_height))
                 sink_space += space
                 sink_count += 1
+
+            corners1 = self._get_corners(x, y, width, depth)
+            # Check for overlaps with other objects
+            for j in range(i + 1, len(placed_objects)):
+                obj2 = placed_objects[j]['object']
+                x2 = obj2.position[0]
+                y2 = obj2.position[1]
+                width2 = obj2.width
+                depth2 = obj2.depth
+                height2 = obj2.height
+                corners2 = self._get_corners(x2, y2, width2, depth2)
+                # Calculate minimum corner-to-corner distance
+                min_dist = self._min_corner_distance(corners1, corners2)
+                if 10 < min_dist < 30:  # Too much free space
+                    spacing_score -= 5
+                if check_overlap((x, y, width, depth,height), (x2, y2, width2, depth2,height2)):
+                    no_overlap_score = 0
+                    break
+
+
         # 8. Requested objects (fulfilling user requirements)
 
         # Calculate wall coverage percentage and score
@@ -442,29 +503,10 @@ class BathroomScoringFunction(BaseScoringFunction):
             if objects:
                 corner_coverage_score += 2.5
                 
-        # 7. Object Spacing (appropriate distances between fixtures)
-        spacing_score = len(placed_objects) * 10
-        
-        # Calculate spacing between objects
-        for i, obj1 in enumerate(placed_objects):
-            obj1 = obj1['object']
-            x1, y1 =obj1.position[:2]
-            width1, depth1 = obj1.width, obj1.depth
-            corners1 = self._get_corners(x1, y1, width1, depth1)
-
-            for j in range(i+1, len(placed_objects)):
-                obj2 = placed_objects[j]['object']
-                x2, y2 = obj2.position[:2]
-                width2, depth2 = obj2.width, obj2.depth
-                corners2 = self._get_corners(x2, y2, width2, depth2)
-
-                # Calculate minimum corner-to-corner distance
-                min_dist = self._min_corner_distance(corners1, corners2)
-                if 10 < min_dist < 30:  # Too much free space
-                    spacing_score -= 5
         
         # Normalize door_sink_score
         door_sink_score = door_sink_score / 15 * 10
+        scores["shower_space"] = 10
         # check minimal space for shower
         if shower_count > 0:
             has_enough_space_shower = has_free_side(shower_rect, objects_rect)
@@ -472,6 +514,7 @@ class BathroomScoringFunction(BaseScoringFunction):
                 scores["shower_space"] = 10
             else:
                 scores["shower_space"] = 0
+        
         # Add all scores to the scores dictionary
         scores["wall_corner_constraints"] = wall_corner_score
         #scores["wall_coverage"] = min(wall_coverage_score, 10)
@@ -484,6 +527,7 @@ class BathroomScoringFunction(BaseScoringFunction):
         scores["corner_toilet"] = corner_toilet_score
         scores["hidden_sink"] = hidden_sink_score
         scores["not_enough_space"] = not_enough_space
+
         
         if placed_objects:
             scores["spacing"] = max(spacing_score / len(placed_objects), 0)
@@ -497,8 +541,11 @@ class BathroomScoringFunction(BaseScoringFunction):
 
         else:
             scores["requested_objects"] = 0
-            
-        scores["bathtub_placement"] = max(bathtub_placement_score, 0)
+        if bathtub_count > 0:
+            scores["bathtub_placement"] = max(bathtub_placement_score, 0)
+            scores["bathtub_size"] = bathtub_size_score
+            total_score += scores["bathtub_placement"]
+            total_score += scores["bathtub_size"]
         
         # Add all scores to total
         total_score += scores["wall_corner_constraints"]
@@ -512,12 +559,14 @@ class BathroomScoringFunction(BaseScoringFunction):
         total_score += scores["spacing"]
         total_score += scores["requested_objects"]
         total_score += scores["shadow_constraints"]
-        total_score += scores["bathtub_placement"]
         total_score += scores["hidden_sink"]
         total_score += scores["not_enough_space"]
-        total_score += scores["enclosed_spaces"]
+        #total_score += scores["enclosed_spaces"]
+        #total_score += scores["corner_accessibility"]
         if shower_count > 0:
             total_score += scores["shower_space"]
+        #else:
+            #total_score += scores["shower_space"]
         
         # Calculate average free space for sinks and toilets
         avg_sink_space = sink_space / sink_count if sink_count > 0 else 0
@@ -546,12 +595,13 @@ class BathroomScoringFunction(BaseScoringFunction):
         
         total_score += scores["opposite_walls_distance"]
 
-
-        
         # Critical constraints check - if any critical constraint is violated, score is 0
         if (scores["no_overlap"] == 0 or 
             scores["wall_corner_constraints"] == 0 or 
-            scores["opposite_walls_distance"] < 5) or scores["enclosed_spaces"] == 0 :
+            scores["opposite_walls_distance"] < 5 or 
+            #scores["enclosed_spaces"] == 0 or 
+            #scores["corner_accessibility"] == 0 or 
+            scores["shower_space"] == 0):
             total_score = 0
         else:
             # Normalize score to be between 0-100
@@ -560,7 +610,6 @@ class BathroomScoringFunction(BaseScoringFunction):
         # Additional penalty for poor door-sink-toilet arrangement
         if scores["door_sink_toilet"] == 0 or scores["sink_opposite_door"] == 0 or scores["toilet_to_door"] < 0:
             total_score = max(total_score - 10, 0)
-        
         # According to project requirements, layouts with accessibility scores < 4 are rejected
         if total_score < 4:
             total_score = 0

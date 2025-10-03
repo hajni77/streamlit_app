@@ -111,7 +111,6 @@ class DefaultPlacementStrategy(PlacementStrategy):
                     bathroom_size, placed_objects, windows_doors, num_options, door_walls
                 ))
 
-
             # If we have enough options, stop
         # if len(options) >= num_options:
         #     return options[:num_options]
@@ -154,21 +153,21 @@ class DefaultPlacementStrategy(PlacementStrategy):
             variations.append((current_width, current_depth, optimal_height))
             #variations.append((current_depth, current_width, optimal_height))
 
-        # Generate larger variations
-        current_width = optimal_width
-        current_depth = optimal_depth
+        # # Generate larger variations
+        # current_width = optimal_width
+        # current_depth = optimal_depth
         
-        while True:
-            # Increase by 5cm
-            current_width += 5
-            # Maintain proportion for depth
-            current_depth = int(current_width * aspect_ratio)
+        # while True:
+        #     # Increase by 5cm
+        #     current_width += 5
+        #     # Maintain proportion for depth
+        #     current_depth = int(current_width * aspect_ratio)
             
-            # Check if we've reached maximum size
-            if current_width > max_width or current_depth > max_depth or current_width*current_depth > max_size:
-                break
+        #     # Check if we've reached maximum size
+        #     if current_width > max_width or current_depth > max_depth or current_width*current_depth > max_size:
+        #         break
                 
-            variations.append((current_width, current_depth, optimal_height))
+        #     variations.append((current_width, current_depth, optimal_height))
             #variations.append((current_depth, current_width, optimal_height))
         # Generate asymetral variations
         current_width = optimal_width
@@ -284,7 +283,6 @@ class DefaultPlacementStrategy(PlacementStrategy):
             for door_window in door_windows_list:
                 # Extract properties from door_window
                 x, y, width, depth, height, wall = extract_door_window_based_on_type(door_window)
-                
                 # Determine which wall this window/door is on
                 # If we already have a wall from the object, use it
                 if wall and isinstance(wall, str):
@@ -549,7 +547,7 @@ class DefaultPlacementStrategy(PlacementStrategy):
         #                 break
         
         # return options
-    
+
     def _generate_free_positions(self, obj_type, obj_def, obj_width, obj_depth, obj_height, shadow,
                                bathroom_size, placed_objects, windows_doors, num_options, door_walls):
         """Generate positions for free-standing objects that can be placed anywhere."""

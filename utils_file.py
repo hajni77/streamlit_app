@@ -713,6 +713,19 @@ def resize_object(rect,room_width, room_depth, type, windows_doors):
     
     return new_x, new_y, new_width, new_depth
 def calculate_overlap_area(rect1, rect2):
+    # Check if rect1 is a list of rectangles
+    if isinstance(rect1, list) and len(rect1) > 0 and isinstance(rect1[0], (list, tuple)):
+        # If rect1 is a list of rectangles, calculate the total overlap area
+        total_overlap = 0
+        for single_rect in rect1:
+            total_overlap += calculate_single_overlap_area(single_rect, rect2)
+        return total_overlap
+    else:
+        # If rect1 is a single rectangle, use the original logic
+        return calculate_single_overlap_area(rect1, rect2)
+
+# Helper function to calculate overlap area between two single rectangles
+def calculate_single_overlap_area(rect1, rect2):
     x1, y1, width1, depth1 = rect1
     x2, y2, width2, depth2 = rect2
     # calculate the overlap area

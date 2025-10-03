@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Tuple, Literal
@@ -9,6 +9,9 @@ import pickle
 import enum
 from datetime import datetime
 from pathlib import Path
+
+# Import authentication utilities
+from user_api import setup_user_api_routes, User, get_current_active_user
 
 # Define enums for wall types and door ways
 class WallType(str, enum.Enum):
@@ -52,6 +55,9 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
+# Setup authentication routes
+setup_user_api_routes(app)
+
 # Load object types data
 try:
     with open("object_types.json", "r") as f:
@@ -79,6 +85,7 @@ class GenerateLayoutRequest(BaseModel):
     objects_to_place: List[str] = Field(description="List of object types to place in the bathroom")
     windows_doors: List[WindowsDoors] = Field(description="List of windows and doors in the bathroom")
     beam_width: int = Field(description="Beam width for the search algorithm (higher = more thorough but slower)")
+    user_id: Optional[str] = Field(default=None, description="User ID for authenticated requests")
 
 class ObjectPosition(BaseModel):
     object_type: str
@@ -168,7 +175,7 @@ def save_layout_state(layout_id: str, state_type: str, data: dict):
 
 @app.post("/api/generate", response_model=GenerateLayoutResponse)
 async def generate_layout(request: GenerateLayoutRequest, background_tasks: BackgroundTasks):
-    """Generate a bathroom layout based on user input."""
+    """Generate a bathroom layout based on user input (public endpoint)."""
     try:
         import time
         start_time = time.time()
@@ -182,12 +189,10 @@ async def generate_layout(request: GenerateLayoutRequest, background_tasks: Back
             height=request.room_height,
             object_types=OBJECT_TYPES
         )
-        print("ok")
         # Add windows and doors
         windows_doors_objects = []
         for wd in request.windows_doors:
             # Create a WindowsDoors instance
-            print(wd)  # Debug print statement
             wd_obj = WindowsDoors(
                 name=wd.name,
                 wall=wd.wall,
@@ -204,6 +209,7 @@ async def generate_layout(request: GenerateLayoutRequest, background_tasks: Back
         # Save the initial state (before generation)
         initial_state = {
             "timestamp": datetime.now().isoformat(),
+            "user_id": request.user_id if hasattr(request, 'user_id') else None,
             "request": request.dict(),
             "bathroom": bathroom,
             "windows_doors": windows_doors_objects
@@ -286,6 +292,7 @@ async def generate_layout(request: GenerateLayoutRequest, background_tasks: Back
         # Save the final state (after generation)
         final_state = {
             "timestamp": datetime.now().isoformat(),
+            "user_id": request.user_id if hasattr(request, 'user_id') else None,
             "request": request.dict(),
             "bathroom": best_layout.bathroom,
             "layout": best_layout,
@@ -432,6 +439,142 @@ async def get_layout_state_detail(layout_id: str, state_type: str):
             status_code=500,
             detail=f"Error loading {state_type} state data: {str(e)}"
         )
+
+
+from fastapi import WebSocket, WebSocketDisconnect
+
+# Store active websocket connections
+active_connections: Dict[str, WebSocket] = {}
+
+@app.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    """
+    WebSocket endpoint for Flutter clients.
+    Each client is identified by a client_id.
+    """
+    await websocket.accept()
+    active_connections[client_id] = websocket
+    try:
+        while True:
+            data = await websocket.receive_text()
+            print(f"Received from {client_id}: {data}")
+
+            # Echo back or send some real-time updates
+            await websocket.send_text(f"Server response to {client_id}: {data}")
+    except WebSocketDisconnect:
+        print(f"Client {client_id} disconnected")
+        del active_connections[client_id]
+
+# Protected endpoints for authenticated users
+@app.post("/api/protected/generate", response_model=GenerateLayoutResponse)
+async def generate_layout_protected(
+    request: GenerateLayoutRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Generate a bathroom layout for authenticated users.
+    Automatically associates the layout with the user.
+    """
+    # Set the user_id from the authenticated user
+    request.user_id = current_user.id
+    
+    # Call the existing generate_layout function
+    response = await generate_layout(request, background_tasks)
+    
+    # Store user association in the layout metadata
+    if response.layout_id in generated_layouts:
+        generated_layouts[response.layout_id]["user_id"] = current_user.id
+        generated_layouts[response.layout_id]["user_email"] = current_user.email
+    
+    return response
+
+@app.get("/api/protected/layouts/", response_model=List[Dict[str, Any]])
+async def get_user_layouts(current_user: User = Depends(get_current_active_user)):
+    """
+    Get all layouts associated with the authenticated user.
+    """
+    user_layouts = []
+    for layout_id, layout_data in generated_layouts.items():
+        if layout_data.get("user_id") == current_user.id:
+            user_layouts.append({
+                "layout_id": layout_id,
+                "timestamp": layout_data["timestamp"],
+                "score": layout_data["response"].score,
+                "room_width": layout_data["response"].room_width,
+                "room_depth": layout_data["response"].room_depth,
+                "room_height": layout_data["response"].room_height,
+            })
+    
+    return user_layouts
+
+@app.get("/api/protected/layout/{layout_id}", response_model=GenerateLayoutResponse)
+async def get_user_layout(
+    layout_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Retrieve a specific layout owned by the authenticated user.
+    """
+    if layout_id not in generated_layouts:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Layout with ID {layout_id} not found"
+        )
+    
+    layout_data = generated_layouts[layout_id]
+    
+    # Check if the layout belongs to the current user
+    if layout_data.get("user_id") != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have permission to access this layout"
+        )
+    
+    return layout_data["response"]
+
+@app.delete("/api/protected/layout/{layout_id}")
+async def delete_user_layout(
+    layout_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Delete a layout owned by the authenticated user.
+    """
+    if layout_id not in generated_layouts:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Layout with ID {layout_id} not found"
+        )
+    
+    layout_data = generated_layouts[layout_id]
+    
+    # Check if the layout belongs to the current user
+    if layout_data.get("user_id") != current_user.id:
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have permission to delete this layout"
+        )
+    
+    # Delete the layout
+    del generated_layouts[layout_id]
+    
+    return {"message": f"Layout {layout_id} deleted successfully"}
+
+@app.get("/api/protected/layouts/public/")
+async def get_public_layouts(current_user: User = Depends(get_current_active_user)):
+    """
+    Get public layouts accessible to all authenticated users.
+    This could be used for templates or shared layouts.
+    """
+    # For now, return an empty list - this can be extended to include template layouts
+    return {
+        "public_layouts": [],
+        "user_info": {
+            "id": current_user.id,
+            "email": current_user.email
+        }
+    }
 
 # If running this file directly, start the API server
 if __name__ == "__main__":

@@ -1,72 +1,441 @@
 import numpy as np
 import time
-def check_enclosed_spaces(spaces_dict, room_width, room_depth, min_distance=20):
+def check_enclosed_spaces(spaces_dict, room_width, room_depth, min_distance=60, door_position=None):
     """
-    Check if there are any enclosed spaces in the room based on the proximity of space corners.
+    Check if there are any enclosed/inaccessible spaces in the room using flood-fill.
+    
+    This function creates a grid representation and uses flood-fill from the door location
+    (or room edges if no door specified) to check if all free spaces are reachable.
+    Any unreachable free space is considered enclosed.
     
     Args:
-        spaces_dict (list): List of tuples (x, y, width, depth) representing spaces in the room.
-        room_width (int): Width of the room.
-        room_depth (int): Depth of the room.
-        min_distance (int, optional): Minimum distance threshold for enclosed spaces detection. Defaults to 30.
+        spaces_dict (list): List of tuples (x, y, width, depth) representing available spaces.
+        room_width (int): Width of the room in cm.
+        room_depth (int): Depth of the room in cm.
+        min_distance (int, optional): Minimum distance threshold (legacy parameter). Defaults to 60.
+        door_position (tuple, optional): Door position as (wall, x, y, width) where wall is 'top'/'bottom'/'left'/'right'.
+                                         If None, starts from all room edges.
     
     Returns:
-        bool: True if enclosed spaces detected, False otherwise.
+        bool: True if enclosed/inaccessible spaces detected, False otherwise.
+    
+    Example:
+        >>> spaces = [(0, 0, 100, 50), (150, 0, 50, 50)]
+        >>> door_pos = ('bottom', 100, 0, 80)  # Door on bottom wall
+        >>> check_enclosed_spaces(spaces, 300, 200, door_position=door_pos)
+        False  # All spaces are accessible from door
     """
-    # Early return if not enough spaces to form enclosed areas
+    # Early return if no spaces
     if len(spaces_dict) < 1:
         return False
-        
-    # Extract corner points (vectors) from spaces more efficiently
-    vectors = []
+    
+    # Create a grid (1 = free space, 0 = occupied/object)
+    # Use 5cm grid cells for better accuracy
+    grid_size = 5
+    grid_width = int(room_width // grid_size)
+    grid_depth = int(room_depth // grid_size)
+    
+    # Initialize grid as all occupied
+    grid = [[0 for _ in range(grid_depth)] for _ in range(grid_width)]
+    
+    # Mark available spaces as free (1)
     for space in spaces_dict:
         x, y, width, depth = space
+        start_x = max(0, int(x // grid_size))
+        start_y = max(0, int(y // grid_size))
+        end_x = min(grid_width, int((x + depth) // grid_size))
+        end_y = min(grid_depth, int((y + width) // grid_size))
         
-        # Corner points for spaces not against walls
-        if x != 0 and y != 0:
-            vectors.extend([
-                (x, y),                # Top-left
-                (x + depth, y),        # Top-right
-                (x, y + width),        # Bottom-left
-                (x + depth, y + width) # Bottom-right
-            ])
-        # Space against left wall
-        elif x != 0 and y == 0:
-            vectors.append((x, y + width))  # Bottom-left
-            # Only add bottom-right if not at room edge
-            if x + depth != room_width or y + width != room_depth:
-                vectors.append((x + depth, y + width))
-        # Space against top wall
-        elif x == 0 and y != 0:
-            vectors.append((x + depth, y))  # Top-right
-            # Only add bottom-right if not at room edge
-            if x + depth != room_width or y + width != room_depth:
-                vectors.append((x + depth, y + width))
+        for i in range(start_x, end_x):
+            for j in range(start_y, end_y):
+                grid[i][j] = 1
     
-    # If we have less than 2 vectors, can't form enclosed spaces
-    if len(vectors) < 2:
-        return False
+    # Count total free cells
+    total_free = sum(sum(row) for row in grid)
+    
+    if total_free == 0:
+        return False  # No free space at all
+    
+    # Flood-fill from door or edges to mark reachable spaces
+    visited = [[False for _ in range(grid_depth)] for _ in range(grid_width)]
+    
+    def flood_fill(x, y):
+        """Flood-fill to mark all reachable free spaces."""
+        if x < 0 or x >= grid_width or y < 0 or y >= grid_depth:
+            return
+        if visited[x][y] or grid[x][y] == 0:
+            return
         
-    # Use numpy for faster distance calculations
-    # if len(vectors) > 5:  # Only convert to numpy for larger sets to avoid overhead
-    #     vectors_array = np.array(vectors)
-    #     for i in range(len(vectors)):
-    #         # Calculate distances from point i to all other points efficiently
-    #         point = vectors_array[i]
-    #         # Broadcasting to calculate all distances at once
-    #         distances = np.sqrt(np.sum((vectors_array - point)**2, axis=1))
-    #         # Check if any point (except itself) is closer than min_distance
-    #         if np.any((distances < min_distance) & (distances > 0)):
-    #             return True
-    # else:
-        # For smaller sets, use the original approach to avoid numpy overhead
-    for i in range(len(vectors)):
-        for j in range(i+1, len(vectors)):
-            distance = np.sqrt((vectors[i][0] - vectors[j][0])**2 + (vectors[i][1] - vectors[j][1])**2)
-            if distance < min_distance:
+        # Use iterative approach to avoid stack overflow
+        stack = [(x, y)]
+        
+        while stack:
+            cx, cy = stack.pop()
+            
+            if cx < 0 or cx >= grid_width or cy < 0 or cy >= grid_depth:
+                continue
+            if visited[cx][cy] or grid[cx][cy] == 0:
+                continue
+            
+            visited[cx][cy] = True
+            
+            # Add neighbors to stack (4-directional connectivity)
+            stack.append((cx + 1, cy))
+            stack.append((cx - 1, cy))
+            stack.append((cx, cy + 1))
+            stack.append((cx, cy - 1))
+    
+    # Determine starting points for flood-fill
+    if door_position:
+        # Start from door location (more accurate)
+        wall, door_x, door_y, door_width = door_position
+        
+        # Convert door position to grid coordinates and find starting cells
+        if wall == 'top':
+            # Door on top wall (x=0)
+            start_y = int(door_y // grid_size)
+            end_y = int((door_y + door_width) // grid_size)
+            for y in range(max(0, start_y), min(grid_depth, end_y + 1)):
+                if grid[0][y] == 1:
+                    flood_fill(0, y)
+        elif wall == 'bottom':
+            # Door on bottom wall (x=room_width)
+            start_y = int(door_y // grid_size)
+            end_y = int((door_y + door_width) // grid_size)
+            for y in range(max(0, start_y), min(grid_depth, end_y + 1)):
+                if grid[grid_width - 1][y] == 1:
+                    flood_fill(grid_width - 1, y)
+        elif wall == 'left':
+            # Door on left wall (y=0)
+            start_x = int(door_x // grid_size)
+            end_x = int((door_x + door_width) // grid_size)
+            for x in range(max(0, start_x), min(grid_width, end_x + 1)):
+                if grid[x][0] == 1:
+                    flood_fill(x, 0)
+        elif wall == 'right':
+            # Door on right wall (y=room_depth)
+            start_x = int(door_x // grid_size)
+            end_x = int((door_x + door_width) // grid_size)
+            for x in range(max(0, start_x), min(grid_width, end_x + 1)):
+                if grid[x][grid_depth - 1] == 1:
+                    flood_fill(x, grid_depth - 1)
+    else:
+        # Fallback: Start flood-fill from all edges
+        # Top edge (x=0)
+        for y in range(grid_depth):
+            if grid[0][y] == 1 and not visited[0][y]:
+                flood_fill(0, y)
+        
+        # Bottom edge (x=grid_width-1)
+        for y in range(grid_depth):
+            if grid[grid_width - 1][y] == 1 and not visited[grid_width - 1][y]:
+                flood_fill(grid_width - 1, y)
+        
+        # Left edge (y=0)
+        for x in range(grid_width):
+            if grid[x][0] == 1 and not visited[x][0]:
+                flood_fill(x, 0)
+        
+        # Right edge (y=grid_depth-1)
+        for x in range(grid_width):
+            if grid[x][grid_depth - 1] == 1 and not visited[x][grid_depth - 1]:
+                flood_fill(x, grid_depth - 1)
+    
+    # Check if there are any unvisited free spaces (enclosed areas)
+    for x in range(grid_width):
+        for y in range(grid_depth):
+            if grid[x][y] == 1 and not visited[x][y]:
+                # Found an enclosed space that's not reachable from door/edges
                 return True
-
+    
     return False
+
+
+def check_corner_accessibility(placed_objects, room_width, room_depth, min_path_width=60):
+    """
+    Check if all room corners are either occupied by objects or accessible via adequate pathways.
+    
+    A corner is considered valid if:
+    1. It has an object placed in it, OR
+    2. It's reachable via a pathway of at least min_path_width (default 60cm)
+    
+    Args:
+        placed_objects (list): List of placed object entries with 'object' key
+        room_width (int): Room width in cm
+        room_depth (int): Room depth in cm
+        min_path_width (int): Minimum pathway width in cm (default: 60)
+    
+    Returns:
+        tuple: (all_corners_valid: bool, corner_status: dict)
+               corner_status = {
+                   'top_left': {'valid': bool, 'reason': str},
+                   'top_right': {'valid': bool, 'reason': str},
+                   'bottom_left': {'valid': bool, 'reason': str},
+                   'bottom_right': {'valid': bool, 'reason': str}
+               }
+    
+    Example:
+        >>> valid, status = check_corner_accessibility(objects, 300, 200, 60)
+        >>> if not valid:
+        ...     print(f"Invalid corners: {[k for k, v in status.items() if not v['valid']]}")
+    """
+    # Define corner positions (with small tolerance for corner detection)
+    corner_size = 30  # Consider 30cm x 30cm area as "corner"
+    corners = {
+        'top_left': (0, 0, corner_size, corner_size),
+        'top_right': (0, room_depth - corner_size, corner_size, corner_size),
+        'bottom_left': (room_width - corner_size, 0, corner_size, corner_size),
+        'bottom_right': (room_width - corner_size, room_depth - corner_size, corner_size, corner_size)
+    }
+    
+    corner_status = {}
+    
+    for corner_name, corner_rect in corners.items():
+        cx, cy, cw, cd = corner_rect
+        
+        # Check if corner has an object
+        has_object = False
+        for obj_entry in placed_objects:
+            obj = obj_entry['object']
+            ox, oy = obj.position
+            ow, od = obj.width, obj.depth
+            
+            # Check if object overlaps with corner area
+            if not (ox + od <= cx or ox >= cx + cd or 
+                    oy + ow <= cy or oy >= cy + cw):
+                has_object = True
+                corner_status[corner_name] = {
+                    'valid': True,
+                    'reason': f'Occupied by {obj.name}'
+                }
+                break
+        
+        if has_object:
+            continue
+        
+        # Corner is empty, check if it's reachable with adequate pathway
+        # Use flood-fill with minimum width constraint
+        is_reachable = _check_corner_reachable_with_width(
+            corner_rect, placed_objects, room_width, room_depth, min_path_width
+        )
+        
+        if is_reachable:
+            corner_status[corner_name] = {
+                'valid': True,
+                'reason': f'Accessible via {min_path_width}cm pathway'
+            }
+        else:
+            corner_status[corner_name] = {
+                'valid': False,
+                'reason': f'Inaccessible - no {min_path_width}cm pathway'
+            }
+    
+    # Check if all corners are valid
+    all_valid = all(status['valid'] for status in corner_status.values())
+    
+    return all_valid, corner_status
+
+
+def _check_corner_reachable_with_width(corner_rect, placed_objects, room_width, room_depth, min_width):
+    """
+    Helper function to check if a corner is reachable via a pathway of minimum width.
+    
+    Uses a grid-based approach where we mark cells as accessible only if they have
+    enough clearance (min_width) in at least one direction.
+    """
+    grid_size = 10  # 10cm grid cells
+    grid_width = int(room_width // grid_size)
+    grid_depth = int(room_depth // grid_size)
+    
+    # Create occupancy grid
+    grid = [[0 for _ in range(grid_depth)] for _ in range(grid_width)]
+    
+    # Mark occupied cells
+    for obj_entry in placed_objects:
+        obj = obj_entry['object']
+        ox, oy = obj.position
+        ow, od = obj.width, obj.depth
+        shadow = obj.shadow if hasattr(obj, 'shadow') else (0, 0, 0, 0)
+        s_top, s_left, s_right, s_bottom = shadow
+        
+        # Include shadow space
+        start_x = max(0, int((ox - s_top) // grid_size))
+        start_y = max(0, int((oy - s_left) // grid_size))
+        end_x = min(grid_width, int((ox + od + s_bottom) // grid_size))
+        end_y = min(grid_depth, int((oy + ow + s_right) // grid_size))
+        
+        for i in range(start_x, end_x):
+            for j in range(start_y, end_y):
+                grid[i][j] = 1  # Occupied
+    
+    # Create accessibility grid considering minimum width
+    # A cell is accessible if it has min_width clearance in at least one direction
+    accessible = [[False for _ in range(grid_depth)] for _ in range(grid_width)]
+    min_cells = int(min_width // grid_size)
+    
+    for x in range(grid_width):
+        for y in range(grid_depth):
+            if grid[x][y] == 1:  # Occupied cell
+                continue
+            
+            # Check if there's enough clearance in any direction
+            # Check horizontal clearance (left-right)
+            h_clear = 0
+            for dy in range(-min_cells, min_cells + 1):
+                ny = y + dy
+                if 0 <= ny < grid_depth and grid[x][ny] == 0:
+                    h_clear += 1
+                else:
+                    break
+            
+            # Check vertical clearance (top-bottom)
+            v_clear = 0
+            for dx in range(-min_cells, min_cells + 1):
+                nx = x + dx
+                if 0 <= nx < grid_width and grid[nx][y] == 0:
+                    v_clear += 1
+                else:
+                    break
+            
+            # Cell is accessible if either direction has enough clearance
+            if h_clear >= min_cells or v_clear >= min_cells:
+                accessible[x][y] = True
+    
+    # Get corner grid position
+    cx, cy, cw, cd = corner_rect
+    corner_grid_x = int((cx + cd / 2) // grid_size)
+    corner_grid_y = int((cy + cw / 2) // grid_size)
+    
+    # Flood-fill from room edges through accessible cells
+    visited = [[False for _ in range(grid_depth)] for _ in range(grid_width)]
+    
+    def flood_fill(x, y):
+        if x < 0 or x >= grid_width or y < 0 or y >= grid_depth:
+            return
+        if visited[x][y] or not accessible[x][y]:
+            return
+        
+        stack = [(x, y)]
+        while stack:
+            cx, cy = stack.pop()
+            if cx < 0 or cx >= grid_width or cy < 0 or cy >= grid_depth:
+                continue
+            if visited[cx][cy] or not accessible[cx][cy]:
+                continue
+            
+            visited[cx][cy] = True
+            stack.extend([(cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)])
+    
+    # Start flood-fill from all edges
+    for y in range(grid_depth):
+        if accessible[0][y]:
+            flood_fill(0, y)
+        if accessible[grid_width - 1][y]:
+            flood_fill(grid_width - 1, y)
+    
+    for x in range(grid_width):
+        if accessible[x][0]:
+            flood_fill(x, 0)
+        if accessible[x][grid_depth - 1]:
+            flood_fill(x, grid_depth - 1)
+    
+    # Check if corner is reachable
+    if 0 <= corner_grid_x < grid_width and 0 <= corner_grid_y < grid_depth:
+        return visited[corner_grid_x][corner_grid_y]
+    
+    return False
+
+
+def get_enclosed_spaces_debug_info(spaces_dict, room_width, room_depth):
+    """
+    Get detailed information about enclosed spaces for debugging/visualization.
+    
+    Args:
+        spaces_dict (list): List of tuples (x, y, width, depth) representing available spaces.
+        room_width (int): Width of the room in cm.
+        room_depth (int): Depth of the room in cm.
+    
+    Returns:
+        dict: {
+            'has_enclosed': bool,
+            'grid': 2D list (1=free, 0=occupied),
+            'reachable': 2D list (True=reachable from edges, False=enclosed),
+            'enclosed_cells': list of (x, y) coordinates of enclosed cells,
+            'grid_size': int (cell size in cm)
+        }
+    """
+    if len(spaces_dict) < 1:
+        return {'has_enclosed': False, 'grid': [], 'reachable': [], 'enclosed_cells': [], 'grid_size': 10}
+    
+    grid_size = 10
+    grid_width = int(room_width // grid_size)
+    grid_depth = int(room_depth // grid_size)
+    
+    # Initialize grid
+    grid = [[0 for _ in range(grid_depth)] for _ in range(grid_width)]
+    
+    # Mark available spaces
+    for space in spaces_dict:
+        x, y, width, depth = space
+        start_x = max(0, int(x // grid_size))
+        start_y = max(0, int(y // grid_size))
+        end_x = min(grid_width, int((x + depth) // grid_size))
+        end_y = min(grid_depth, int((y + width) // grid_size))
+        
+        for i in range(start_x, end_x):
+            for j in range(start_y, end_y):
+                grid[i][j] = 1
+    
+    # Flood-fill from edges
+    visited = [[False for _ in range(grid_depth)] for _ in range(grid_width)]
+    
+    def flood_fill(x, y):
+        if x < 0 or x >= grid_width or y < 0 or y >= grid_depth:
+            return
+        if visited[x][y] or grid[x][y] == 0:
+            return
+        
+        stack = [(x, y)]
+        while stack:
+            cx, cy = stack.pop()
+            if cx < 0 or cx >= grid_width or cy < 0 or cy >= grid_depth:
+                continue
+            if visited[cx][cy] or grid[cx][cy] == 0:
+                continue
+            
+            visited[cx][cy] = True
+            stack.extend([(cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)])
+    
+    # Flood-fill from all edges
+    for y in range(grid_depth):
+        if grid[0][y] == 1:
+            flood_fill(0, y)
+        if grid[grid_width - 1][y] == 1:
+            flood_fill(grid_width - 1, y)
+    
+    for x in range(grid_width):
+        if grid[x][0] == 1:
+            flood_fill(x, 0)
+        if grid[x][grid_depth - 1] == 1:
+            flood_fill(x, grid_depth - 1)
+    
+    # Find enclosed cells
+    enclosed_cells = []
+    has_enclosed = False
+    
+    for x in range(grid_width):
+        for y in range(grid_depth):
+            if grid[x][y] == 1 and not visited[x][y]:
+                enclosed_cells.append((x * grid_size, y * grid_size))
+                has_enclosed = True
+    
+    return {
+        'has_enclosed': has_enclosed,
+        'grid': grid,
+        'reachable': visited,
+        'enclosed_cells': enclosed_cells,
+        'grid_size': grid_size
+    }
 
 
 def identify_available_space(placed_obj, room_sizes, grid_size=1, windows_doors=[]):

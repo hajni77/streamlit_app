@@ -1,0 +1,44 @@
+# Build directories
+build/
+build_debug/
+dist/
+*.egg-info/
+__pycache__/
+*.pyc
+*.pyo
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Compiled files
+*.so
+*.pyd
+*.dll
+*.dylib
+*.o
+*.obj
+*.lib
+*.exp
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python cache
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Build artifacts
+*.cmake
+install_manifest.txt

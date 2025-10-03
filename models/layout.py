@@ -15,9 +15,21 @@ class Layout:
         import copy
         return copy.deepcopy(self)
         
-    def evaluate(self, scoring_function):
+    def evaluate(self, scoring_function, use_cpp_scoring=False):
         """Evaluate the layout using the provided scoring function."""
-        self.score, self.score_breakdown = scoring_function.score(self)
+        if use_cpp_scoring:
+            try:
+                # Import here to avoid circular import
+                from optimization.cpp_scoring.python_wrapper import CppBathroomScoringWrapper
+                scorer = CppBathroomScoringWrapper()
+                self.score, self.score_breakdown = scorer.score(self)
+            except (ImportError, Exception) as e:
+                # Fallback to Python scorer if C++ not available
+                print(f"[Warning] C++ scorer not available, using Python: {e}")
+                self.score, self.score_breakdown = scoring_function.score(self)
+        else:
+            # Use the provided scoring function (default behavior)
+            self.score, self.score_breakdown = scoring_function.score(self)
         
     def get_object_positions(self):
         """Get positions of all objects in the layout."""

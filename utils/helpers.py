@@ -15,8 +15,6 @@ def save_data(supabase, room_sizes, positions, doors, review, is_enough_path, sp
     
     with st.spinner("Saving your review to the database..."):
         try:
-            print(type(positions))
-            print(positions.bathroom.objects)
             placed_objects = positions.bathroom.objects
             objects = []
             objects_positions = []
@@ -100,7 +98,119 @@ def check_which_wall(new_rect, room_width, room_depth):
     else:
         return "middle"
 
+# def optimize_object_sizes(layout):
+#     """
+#     Enlarge target objects (bathtub, sink, double sink) to the maximum feasible size
+#     within room and constraint limits.
 
+#     Args:
+#         layout: The `Layout` instance containing a `Bathroom` with placed objects.
+
+#     Returns:
+#         The modified layout (objects updated in place).
+#     """
+#     # Safety checks
+#     if not hasattr(layout, "bathroom") or layout.bathroom is None:
+#         return layout
+
+#     bathroom = layout.bathroom
+#     room_width, room_depth, _ = bathroom.get_size()
+#     door_walls = bathroom.get_door_walls()
+#     windows_doors = getattr(bathroom, "windows_doors", None)
+
+#     # Target object names
+#     target_names = {"bathtub", "sink", "double sink"}
+
+#     # Helper to get max allowed size from object_types
+#     def max_allowed_size(obj_name):
+#         obj_def = get_object_def(obj_name)
+#         min_w, max_w, min_d, max_d, min_h, max_h = obj_def["size_range"]
+#         return max_w, max_d, max_h
+
+#     # Validation wrapper
+#     def can_place(obj, new_w, new_d, new_h):
+#         x, y = obj.position
+#         wall = obj.wall
+#         shadow_space = obj.shadow if hasattr(obj, "shadow") else (0, 0, 0, 0)
+#         new_rect = (x, y, new_w, new_d, new_h, wall)
+
+#         # Build placed rects excluding current object
+#         placed_rects = [o for o in bathroom.objects if o.get("object") is not obj]
+
+#         if not is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_depth, door_walls):
+#             return False
+
+#         # Check doors/windows overlap
+#         if windows_doors:
+#             if windows_doors_overlap(windows_doors, x, y, 0, new_w, new_d, new_h, room_width, room_depth, shadow_space, obj.name):
+#                 return False
+#         return True
+
+#     # Decide preferred grow order by wall orientation
+#     def grow_order(wall):
+#         # Along top/bottom walls, width runs along the wall; try width first
+#         # Along left/right walls, depth runs along the wall; try depth first
+#         if wall in ("top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"):
+#             return ("width", "depth")
+#         if wall in ("left", "right"):
+#             return ("depth", "width")
+#         return ("width", "depth")
+
+#     step = 5  # cm granularity
+
+#     for entry in bathroom.objects:
+#         if not isinstance(entry, dict) or "object" not in entry:
+#             continue
+#         obj = entry["object"]
+#         if not hasattr(obj, "name") or obj.name.lower() not in target_names:
+#             continue
+#         if not hasattr(obj, "position") or obj.position is None:
+#             continue
+
+#         # Current and max sizes
+#         cur_w, cur_d, cur_h = obj.width, obj.depth, obj.height
+#         max_w, max_d, max_h = max_allowed_size(obj.name)
+
+#         # Respect current height (typically fixed for these fixtures)
+#         target_h = min(max_h, cur_h if cur_h else max_h)
+
+#         order = grow_order(obj.wall)
+
+#         new_w, new_d = cur_w, cur_d
+
+#         # Greedy widening
+#         if order[0] == "width":
+#             w = new_w
+#             while w + step <= max_w and can_place(obj, w + step, new_d, target_h):
+#                 w += step
+#             new_w = w
+#         else:
+#             d = new_d
+#             while d + step <= max_d and can_place(obj, new_w, d + step, target_h):
+#                 d += step
+#             new_d = d
+
+#         # Greedy growth for the second dimension
+#         if order[1] == "width":
+#             w = new_w
+#             while w + step <= max_w and can_place(obj, w + step, new_d, target_h):
+#                 w += step
+#             new_w = w
+#         else:
+#             d = new_d
+#             while d + step <= max_d and can_place(obj, new_w, d + step, target_h):
+#                 d += step
+#             new_d = d
+
+#         # Final assignment
+#         obj.width = new_w
+#         obj.depth = new_d
+#         obj.height = target_h
+#         # Recompute shadow if wall set
+#         if hasattr(obj, "get_shadow_area") and obj.wall is not None:
+#             obj.shadow = obj.get_shadow_area()
+
+#     return layout
 def check_distance_from_wall(rect, room_width, room_depth, wall, shadow):
     """Check the distance of the object from the wall."""
     x, y, width, depth = rect
@@ -477,6 +587,19 @@ def sort_objects_by_size(object_list, room_width, room_depth):
     return object_list
 # Check if two rectangles overlap
 def check_overlap(rect1, rect2):
+    # Check if rect1 is a list of rectangles
+    if isinstance(rect1, list) and len(rect1) > 0 and isinstance(rect1[0], (list, tuple)):
+        # If rect1 is a list of rectangles, check if any rectangle overlaps with rect2
+        for single_rect in rect1:
+            if check_single_overlap(single_rect, rect2):
+                return True
+        return False
+    else:
+        # If rect1 is a single rectangle, use the original logic
+        return check_single_overlap(rect1, rect2)
+
+# Helper function to check overlap between two single rectangles
+def check_single_overlap(rect1, rect2):
     # Extract coordinates (x, y, width, depth, height)
     x1, y1, width1, depth1 = rect1[0], rect1[1], rect1[2], rect1[3]
     x2, y2, width2, depth2 = rect2[0], rect2[1], rect2[2], rect2[3]
@@ -500,6 +623,10 @@ def check_overlap(rect1, rect2):
         # No overlap if one object is above the other
         if height1 <= 0 or height2 <= 0:
             height_overlap = False
+            
+    if not height_overlap:
+        return False
+        
     # check if the rectangles are inside each other (1 in 2)
     if rect1_left >= rect2_left and rect1_right <= rect2_right and rect1_top >= rect2_top and rect1_bottom <= rect2_bottom:
         return True
@@ -507,7 +634,6 @@ def check_overlap(rect1, rect2):
     # check if the rectangles are inside each other (2 in 1)
     if rect2_left >= rect1_left and rect2_right <= rect1_right and rect2_top >= rect1_top and rect2_bottom <= rect1_bottom:
         return True
-    
     
     # Check if the rectangles overlap
     if (rect1_right <= rect2_left or rect2_right <= rect1_left) or (rect1_bottom <= rect2_top or rect2_bottom <= rect1_top): 
@@ -608,20 +734,26 @@ def get_opposite_wall(wall):
     
 #     return False
 
-
 def calculate_overlap_area(rect1, rect2):
+    # Check if rect1 is a list of rectangles
+    if isinstance(rect1, list) and len(rect1) > 0 and isinstance(rect1[0], (list, tuple)):
+        # If rect1 is a list of rectangles, calculate the total overlap area
+        total_overlap = 0
+        for single_rect in rect1:
+            total_overlap += calculate_single_overlap_area(single_rect, rect2)
+        return total_overlap
+    else:
+        # If rect1 is a single rectangle, use the original logic
+        return calculate_single_overlap_area(rect1, rect2)
+
+# Helper function to calculate overlap area between two single rectangles
+def calculate_single_overlap_area(rect1, rect2):
     x1, y1, width1, depth1 = rect1
     x2, y2, width2, depth2 = rect2
-    
-    # Calculate the overlap dimensions
-    overlap_width = min(x1 + depth1, x2 + depth2) - max(x1, x2)
-    overlap_height = min(y1 + width1, y2 + width2) - max(y1, y2)
-    
-    # If either dimension is negative, there is no overlap
-    if overlap_width <= 0 or overlap_height <= 0:
-        return 0
-    
-    return overlap_width * overlap_height
+    # calculate the overlap area
+    overlap_x = max(0, min(x1 + width1, x2 + width2) - max(x1, x2))
+    overlap_y = max(0, min(y1 + depth1, y2 + depth2) - max(y1, y2))
+    return overlap_x * overlap_y
 
 
 def calculate_space_before_object(obj, placed_objects, room_size):
@@ -637,7 +769,7 @@ def calculate_space_before_object(obj, placed_objects, room_size):
     Returns:
         float: Amount of free space in front of the object (in cm)
     """
-    obj = obj['object']
+    
     x = obj.position[0]
     y = obj.position[1]
     width = obj.width
@@ -1211,7 +1343,11 @@ def generate_random_position(wall,room_width,room_depth,obj_width,obj_depth):
             i += 1
     
     return positions
-    
+
+
+            
+
+                        
 def windows_doors_overlap(windows_doors, x, y, z, width, depth, height, room_width, room_depth, shadow_space,obj_type):
     new_rect = (x, y, width, depth)
     object_space = [(x, y, width, depth)]
@@ -1349,47 +1485,432 @@ def windows_doors_overlap(windows_doors, x, y, z, width, depth, height, room_wid
 #             if grid[x][y] == 0 and not visited[x][y]:
 #                 return True  # Found an enclosed space
 
+def try_enlarge_and_shift(target_obj_entry, bathroom, max_width_increase=50, max_depth_increase=50, shift_step=5):
+    """
+    Try to enlarge an object (width and depth) and shift blocking objects if necessary.
+    
+    This function attempts to incrementally increase the width and depth of a target object.
+    When a blocking object is encountered, it tries to shift that object away to make room.
+    The enlargement stops when either:
+    - Maximum size constraints are reached
+    - Room boundaries are reached
+    - A blocking object cannot be shifted
+    
+    Args:
+        target_obj_entry (dict): The object entry to enlarge (contains 'object' key)
+        bathroom: The Bathroom instance containing all objects
+        max_width_increase (float): Maximum width increase in cm (default: 50)
+        max_depth_increase (float): Maximum depth increase in cm (default: 50)
+        shift_step (float): Step size for shifting objects in cm (default: 5)
+    
+    Returns:
+        tuple: (success: bool, new_width: float, new_depth: float, shifted_objects: list)
+               - success: True if any enlargement occurred
+               - new_width: Final width after enlargement
+               - new_depth: Final depth after enlargement
+               - shifted_objects: List of (obj_entry, old_pos, new_pos) tuples
+    
+    Example:
+        >>> # Get a bathtub object entry from the bathroom
+        >>> bathtub_entry = next(e for e in bathroom.objects 
+        ...                      if e['object'].name == 'bathtub')
+        >>> success, new_w, new_d, shifts = try_enlarge_and_shift(
+        ...     bathtub_entry, bathroom, max_width_increase=30, max_depth_increase=30
+        ... )
+        >>> if success:
+        ...     print(f"Enlarged to {new_w}x{new_d}cm, shifted {len(shifts)} objects")
+    """
+    if not isinstance(target_obj_entry, dict) or "object" not in target_obj_entry:
+        return False, None, None, []
+    
+    target_obj = target_obj_entry["object"]
+    if not hasattr(target_obj, "position") or target_obj.position is None:
+        return False, None, None, []
+    
+    # Get room dimensions
+    room_width, room_depth, room_height = bathroom.get_size()
+    door_walls = bathroom.get_door_walls()
+    windows_doors = getattr(bathroom, "windows_doors", None)
+    
+    # Get object constraints
+    obj_def = get_object_def(target_obj.name)
+    min_w, max_w, min_d, max_d, min_h, max_h = obj_def["size_range"]
+    
+    # Current dimensions
+    cur_x, cur_y = target_obj.position
+    cur_w = target_obj.width
+    cur_d = target_obj.depth
+    cur_h = target_obj.height
+    shadow_space = target_obj.shadow if hasattr(target_obj, "shadow") else (0, 0, 0, 0)
+    
+    # Calculate target dimensions (capped by constraints and room size)
+    target_w = min(cur_w + max_width_increase, max_w, room_depth - cur_y)
+    target_d = min(cur_d + max_depth_increase, max_d, room_width - cur_x)
+    
+    shifted_objects = []
+    
+    # Try to enlarge incrementally
+    new_w = cur_w
+    new_d = cur_d
+    
+    # Attempt width increase
+    for w in range(int(cur_w), int(target_w) + 1, int(shift_step)):
+        test_rect = (cur_x, cur_y, w, new_d, cur_h, target_obj.wall)
+        
+        # Check if this size works without shifting
+        if _can_place_with_shift(test_rect, target_obj_entry, bathroom, shadow_space, 
+                                  door_walls, windows_doors, shifted_objects, shift_step):
+            new_w = w
+        else:
+            break
+    
+    # Attempt depth increase
+    for d in range(int(cur_d), int(target_d) + 1, int(shift_step)):
+        test_rect = (cur_x, cur_y, new_w, d, cur_h, target_obj.wall)
+        
+        # Check if this size works without shifting
+        if _can_place_with_shift(test_rect, target_obj_entry, bathroom, shadow_space,
+                                  door_walls, windows_doors, shifted_objects, shift_step):
+            new_d = d
+        else:
+            break
+    
+    # Apply changes if successful
+    if new_w > cur_w or new_d > cur_d:
+        target_obj.width = new_w
+        target_obj.depth = new_d
+        
+        # Apply shifts to blocking objects
+        for obj_entry, old_pos, new_pos in shifted_objects:
+            obj_entry["object"].position = new_pos
+        
+        return True, new_w, new_d, shifted_objects
+    
+    return False, cur_w, cur_d, []
+
+
+def _can_place_with_shift(new_rect, target_entry, bathroom, shadow_space, door_walls, 
+                          windows_doors, shifted_objects, shift_step=5, max_shift=100):
+    """
+    Helper function to check if placement is valid, attempting to shift blocking objects.
+    
+    Args:
+        new_rect (tuple): (x, y, w, d, h, wall) for the target object
+        target_entry (dict): The target object entry
+        bathroom: Bathroom instance
+        shadow_space (tuple): Shadow space of target object
+        door_walls: Door walls list
+        windows_doors: Windows/doors objects
+        shifted_objects (list): List to track shifted objects
+        shift_step (float): Step size for shifting
+        max_shift (float): Maximum shift distance in cm
+    
+    Returns:
+        bool: True if placement is valid (with or without shifts)
+    """
+    x, y, w, d, h, wall = new_rect
+    room_width, room_depth, _ = bathroom.get_size()
+    
+    # Check room boundaries
+    if x < 0 or y < 0 or x + d > room_width or y + w > room_depth:
+        return False
+    
+    # Check windows/doors overlap
+    if windows_doors:
+        from utils.helpers import windows_doors_overlap
+        if windows_doors_overlap(windows_doors, x, y, 0, w, d, h, room_width, room_depth, shadow_space, target_entry["object"].name):
+            return False
+    
+    # Get all other objects
+    other_objects = [e for e in bathroom.objects if isinstance(e, dict) and e is not target_entry]
+    
+    # Check for overlaps and attempt shifts
+    for other_entry in other_objects:
+        other_obj = other_entry["object"]
+        ox, oy = other_obj.position
+        ow, od, oh = other_obj.width, other_obj.depth, other_obj.height
+        other_shadow = other_obj.shadow if hasattr(other_obj, "shadow") else (0, 0, 0, 0)
+        
+        # Check if there's an overlap
+        if _check_collision(x, y, w, d, shadow_space, ox, oy, ow, od, other_shadow):
+            # Try to shift the blocking object
+            shift_success, new_ox, new_oy = _try_shift_object(
+                other_entry, new_rect, bathroom, other_objects, shift_step, max_shift
+            )
+            
+            if shift_success:
+                # Track the shift
+                shifted_objects.append((other_entry, (ox, oy), (new_ox, new_oy)))
+                # Temporarily update position for further checks
+                other_obj.position = (new_ox, new_oy)
+            else:
+                # Cannot shift, placement fails
+                return False
+    
+    return True
+
+
+def _check_collision(x1, y1, w1, d1, shadow1, x2, y2, w2, d2, shadow2):
+    """
+    Check if two objects (with shadows) collide.
+    
+    Returns:
+        bool: True if collision detected
+    """
+    s1_top, s1_left, s1_right, s1_bottom = shadow1
+    s2_top, s2_left, s2_right, s2_bottom = shadow2
+    
+    # Object 1 with shadow
+    obj1_rect = (x1, y1, w1, d1)
+    shadow1_rect = (x1 - s1_top, y1 - s1_left, w1 + s1_left + s1_right, d1 + s1_top + s1_bottom)
+    
+    # Object 2 with shadow
+    obj2_rect = (x2, y2, w2, d2)
+    shadow2_rect = (x2 - s2_top, y2 - s2_left, w2 + s2_left + s2_right, d2 + s2_top + s2_bottom)
+    
+    # Check object-object, shadow-object, object-shadow overlaps
+    if check_overlap(obj1_rect, obj2_rect):
+        return True
+    if check_overlap(shadow1_rect, obj2_rect):
+        return True
+    if check_overlap(obj1_rect, shadow2_rect):
+        return True
+    
+    return False
+
+
+def _try_shift_object(obj_entry, blocking_rect, bathroom, other_objects, shift_step=5, max_shift=100):
+    """
+    Try to shift an object away from a blocking rectangle.
+    
+    Args:
+        obj_entry (dict): Object entry to shift
+        blocking_rect (tuple): (x, y, w, d, h, wall) of the blocking object
+        bathroom: Bathroom instance
+        other_objects (list): Other objects to check against
+        shift_step (float): Step size for shifting
+        max_shift (float): Maximum shift distance
+    
+    Returns:
+        tuple: (success: bool, new_x: float, new_y: float)
+    """
+    obj = obj_entry["object"]
+    ox, oy = obj.position
+    ow, od = obj.width, obj.depth
+    obj_shadow = obj.shadow if hasattr(obj, "shadow") else (0, 0, 0, 0)
+    
+    bx, by, bw, bd, bh, bwall = blocking_rect
+    room_width, room_depth, _ = bathroom.get_size()
+    
+    # Determine shift directions based on relative positions
+    # Reason: We want to shift away from the blocking object
+    shift_directions = []
+    
+    # Calculate center points
+    obj_center_x = ox + od / 2
+    obj_center_y = oy + ow / 2
+    block_center_x = bx + bd / 2
+    block_center_y = by + bw / 2
+    
+    # Determine primary shift direction
+    dx = obj_center_x - block_center_x
+    dy = obj_center_y - block_center_y
+    
+    if abs(dx) > abs(dy):
+        # Shift along x-axis
+        if dx > 0:
+            shift_directions.append((shift_step, 0))  # Shift right
+        else:
+            shift_directions.append((-shift_step, 0))  # Shift left
+    else:
+        # Shift along y-axis
+        if dy > 0:
+            shift_directions.append((0, shift_step))  # Shift down
+        else:
+            shift_directions.append((0, -shift_step))  # Shift up
+    
+    # Try shifting in the determined direction
+    for shift_x, shift_y in shift_directions:
+        for distance in range(int(shift_step), int(max_shift) + 1, int(shift_step)):
+            new_x = ox + (shift_x * distance / shift_step)
+            new_y = oy + (shift_y * distance / shift_step)
+            
+            # Check room boundaries
+            if new_x < 0 or new_y < 0 or new_x + od > room_width or new_y + ow > room_depth:
+                continue
+            
+            # Check if new position is valid (no overlaps with other objects)
+            valid = True
+            for other_entry in other_objects:
+                if other_entry is obj_entry:
+                    continue
+                
+                other_obj = other_entry["object"]
+                other_x, other_y = other_obj.position
+                other_w, other_d = other_obj.width, other_obj.depth
+                other_shadow = other_obj.shadow if hasattr(other_obj, "shadow") else (0, 0, 0, 0)
+                
+                if _check_collision(new_x, new_y, ow, od, obj_shadow, 
+                                   other_x, other_y, other_w, other_d, other_shadow):
+                    valid = False
+                    break
+            
+            if valid:
+                return True, new_x, new_y
+    
+    return False, ox, oy
+
+
 def has_free_side(rect, objects, min_clearance=60):
     """
     shower: (x, y, w, h)
     objects: list of (x, y, w, h, name)
-    min_clearance: opcionális, alapból w/2 vagy h/2
+    min_clearance: int
     """
     x, y, w, d = rect
     clearance = min_clearance
+    free_side = True
+    wrong_count=0
+    bigger_rect = (x-clearance, y-clearance, w+2*clearance, d+2*clearance)
+    for i in objects:
+        # not the same object
+        if i !=rect:
+            if check_overlap(bigger_rect, i):
+                # nearby object
+                if (i[1]+w< y or i[1]> y+d) and d > i[3]*2:
+                    free_side = True
+                elif (i[0]+d< x or i[0]> x+d) and w > i[2]*2:
+                    free_side = True
+                else:
+                    free_side = False
+                    wrong_count+=1
+                    if wrong_count==2:
+                        break
+                    else:
+                        free_side=True
+    return free_side
+        
 
-    # Függvény az ütközés ellenőrzésére
-    def intersects(a, b):
-        ax, ay, aw, ad = a
-        bx, by, bw, bd = b
-        return not (ax+ad <= bx or bx+bd <= ax or ay+aw <= by or by+bw <= ay)
 
-    # Ellenőrizni kell minden oldalra
-    directions = {
-        "left":   (x, y-clearance, clearance, d),
-        "right":  (x, y+w, clearance, d),
-        "top":    (x-clearance, y, w, clearance),
-        "bottom": (x+d, y, w, clearance),
-    }
-    i = 0
-    for side, area in directions.items():
-        blocked = False
 
-        for ox, oy, ow, od in objects:
-            if intersects(area, (ox, oy, ow, od)):
-                # ha a blokk mélysége >= shower mélysége → blokkolt
-                if od >= d/2 and ow >= w/2:
-                    blocked = True
-                    break
-                elif od >= d/2 and (i ==0 or i ==1):
-                    blocked = True
-                    break
-                elif ow >= w/2 and (i ==2 or i ==3):
-                    blocked = True
-                    break
-                
-            i += 1      
-        if not blocked:
-            return True  # legalább egy oldal szabad
+def optimize_object_sizes(layout):
+    """
+    Enlarge target objects (bathtub, sink, double sink) to the maximum feasible size
+    within room and constraint limits.
 
-    return False
+    Args:
+        layout: The `Layout` instance containing a `Bathroom` with placed objects.
+
+    Returns:
+        The modified layout (objects updated in place).
+    """
+    # Safety checks
+    if not hasattr(layout, "bathroom") or layout.bathroom is None:
+        return layout
+
+    bathroom = layout.bathroom
+    room_width, room_depth, _ = bathroom.get_size()
+    door_walls = bathroom.get_door_walls()
+    windows_doors = getattr(bathroom, "windows_doors", None)
+
+    # Target object names
+    target_names = {"bathtub", "sink", "double sink"}
+
+    # Helper to get max allowed size from object_types
+    def max_allowed_size(obj_name):
+        obj_def = get_object_def(obj_name)
+        min_w, max_w, min_d, max_d, min_h, max_h = obj_def["size_range"]
+        return max_w, max_d, max_h
+
+    # Validation wrapper
+    def can_place(obj, new_w, new_d, new_h, exclude_entry):
+        x, y = obj.position
+        wall = obj.wall
+        shadow_space = obj.shadow if hasattr(obj, "shadow") else (0, 0, 0, 0)
+        new_rect = (x, y, new_w, new_d, new_h, wall)
+
+        # Build placed rects excluding current object entry
+        placed_rects = [e for e in bathroom.objects if isinstance(e, dict) and e is not exclude_entry]
+
+        if not is_valid_placement(new_rect, placed_rects, shadow_space, room_width, room_depth, door_walls):
+            return False
+
+        # Check doors/windows overlap
+        if windows_doors:
+            if windows_doors_overlap(windows_doors, x, y, 0, new_w, new_d, new_h, room_width, room_depth, shadow_space, obj.name):
+                return False
+        return True
+
+    # Decide preferred grow order by wall orientation
+    def grow_order(wall):
+        # Along top/bottom walls, width runs along the wall; try width first
+        # Along left/right walls, depth runs along the wall; try depth first
+        if wall in ("top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"):
+            return ("width", "depth")
+        if wall in ("left", "right"):
+            return ("depth", "width")
+        return ("width", "depth")
+
+    step = 5  # cm granularity
+
+    for entry in bathroom.objects:
+        if not isinstance(entry, dict) or "object" not in entry:
+            continue
+        obj = entry["object"]
+        if not hasattr(obj, "name") or obj.name.lower() not in target_names:
+            continue
+        if not hasattr(obj, "position") or obj.position is None:
+            continue
+
+        # Current and max sizes
+        cur_w, cur_d, cur_h = obj.width, obj.depth, obj.height
+        max_w, max_d, max_h = max_allowed_size(obj.name)
+        if cur_w < cur_d:
+            max_w, max_d = max_d, max_w
+            max_w = min(max_w, room_width-obj.position[0])
+            max_d = min(max_d, room_depth-obj.position[1])
+        else:
+            max_w = min(max_w, room_depth-obj.position[1])
+            max_d = min(max_d, room_width-obj.position[0])
+
+        # Respect current height (typically fixed for these fixtures)
+        target_h = min(max_h, cur_h if cur_h else max_h)
+
+        order = grow_order(obj.wall)
+
+        new_w, new_d = cur_w, cur_d
+
+        # Greedy widening
+        if order[0] == "width":
+            w = new_w
+            while w + step <= max_w and can_place(obj, w + step, new_d, target_h, entry):
+                w += step
+            new_w = w
+        else:
+            d = new_d
+            while d + step <= max_d and can_place(obj, new_w, d + step, target_h, entry):
+                d += step
+            new_d = d
+        # Greedy growth for the second dimension
+        if order[1] == "width":
+            w = new_w
+            while w + step <= max_w and can_place(obj, w + step, new_d, target_h, entry):
+                w += step
+            new_w = w
+        else:
+            d = new_d
+            while d + step <= max_d and can_place(obj, new_w, d + step, target_h, entry):
+                d += step
+            new_d = d
+
+        # Final assignment
+        obj.width = new_w
+        obj.depth = new_d
+        obj.height = target_h
+        # Recompute shadow if wall set
+        if hasattr(obj, "get_shadow_area") and obj.wall is not None:
+            obj.shadow = obj.get_shadow_area()
+
+        
+
+    return layout

@@ -8,6 +8,7 @@ import json
 import time
 import base64
 import requests
+import datetime
 from dotenv import load_dotenv
 from supabase import create_client, Client
 import psycopg2
@@ -16,9 +17,11 @@ from st_supabase_connection import SupabaseConnection
 from algorithms.available_space import identify_available_space
 from layout_ml import LayoutPreferenceModel, get_feature_importance
 from layout_rl import LayoutRLModel
-from utils.helpers import get_required_area, mark_inaccessible_spaces, check_valid_room, check_overlap, save_data
+from utils.helpers import get_required_area, mark_inaccessible_spaces, check_valid_room, check_overlap, save_data, optimize_object_sizes
 from optimization import compare_room_layouts
 from optimization.scoring import BathroomScoringFunction
+from utils.timing_logger import get_timing_summary
+from utils.timing_analysis import load_timing_data, get_summary_stats, plot_timing_distribution, get_performance_recommendations
 from matplotlib import patches
 from authentication import auth_section
 from models.windows_doors import WindowsDoors
@@ -195,15 +198,16 @@ def display_layout_selection(layouts, all_scores, room_width, room_depth, room_h
                     st.session_state.best_layout_score = score
                     st.session_state.total_score = score
                     st.session_state.detailed_scores = detailed_scores
+                    st.session_state.generated = True  # Enable Analysis tab
  
-                    # # Add this selection to both models' training data
-                    # # Train ML model
-                    # st.session_state.ml_model.add_training_example(
-                    #     layout_idx, 
-                    #     st.session_state.all_layouts, 
-                    #     st.session_state.layout_metrics
-                    # )
-                    # st.session_state.ml_update_needed = True
+                    # Add this selection to both models' training data
+                    # Train ML model
+                    st.session_state.ml_model.add_training_example(
+                        layout_idx, 
+                        st.session_state.all_layouts, 
+                        st.session_state.layout_metrics
+                    )
+                    st.session_state.ml_update_needed = True
                                     
                     # # Train RL model
                     # try:
@@ -346,7 +350,7 @@ else:
     #st.markdown("<p style='text-align: center; margin-bottom: 2rem;'>Design your perfect bathroom layout with our interactive 3D generator</p>", unsafe_allow_html=True)
     
     # Create tabs for different sections of the app
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📐 Room Setup", "🏠 Visualization", "📊 Analysis", "✍️ Review", "📋 Saved Reviews"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📐 Room Setup", "🏠 Visualization", "📊 Analysis", "✍️ Review", "📋 Saved Reviews", "⏱️ Performance"])
     
     
     # Initialize session state variables if they don't exist
@@ -378,24 +382,24 @@ else:
             print(f"Note: Could not load ML model from Supabase: {e}")
     
     # Initialize RL model if not already in session state
-    if 'rl_model' not in st.session_state:
-        st.session_state.rl_model = LayoutRLModel()
+    # if 'rl_model' not in st.session_state:
+    #     st.session_state.rl_model = LayoutRLModel()
         
-        # Try to load the model from local storage first
-        local_load_success = st.session_state.rl_model.load_model()
+    #     # Try to load the model from local storage first
+    #     local_load_success = st.session_state.rl_model.load_model()
         
-        # If we're on Streamlit Cloud and have Supabase set up, also try loading from there
-        try:
-            # Only attempt Supabase if we have the client properly initialized
-            if 'supabase' in locals() or 'supabase' in globals():
-                supabase_loaded = st.session_state.rl_model.load_model_from_supabase(supabase)
-                if supabase_loaded:
-                    print("RL Model loaded from Supabase storage")
-        except Exception as e:
-            print(f"Note: Could not load RL model from Supabase: {e}")
+    #     # If we're on Streamlit Cloud and have Supabase set up, also try loading from there
+    #     try:
+    #         # Only attempt Supabase if we have the client properly initialized
+    #         if 'supabase' in locals() or 'supabase' in globals():
+    #             supabase_loaded = st.session_state.rl_model.load_model_from_supabase(supabase)
+    #             if supabase_loaded:
+    #                 print("RL Model loaded from Supabase storage")
+    #     except Exception as e:
+    #         print(f"Note: Could not load RL model from Supabase: {e}")
             
-        st.session_state.ml_update_needed = False
-        st.session_state.rl_update_needed = False
+        # st.session_state.ml_update_needed = False
+        # st.session_state.rl_update_needed = False
         
     # Track if we need to update the models with a new selection
     if 'ml_update_needed' not in st.session_state:
@@ -613,6 +617,7 @@ else:
                 if x+door_width > room_width:
                     x = room_width - door_width
             elif selected_door_type == "left":
+                y=0
                 if x+door_width > room_width:
                     x = room_width - door_width
             st.session_state.x = x
@@ -710,24 +715,192 @@ else:
         # If we just submitted a review, don't regenerate
         st.session_state.review_submitted = False
     # check if this is a new generation request or if we're coming from a download button
-    elif 'download_clicked' in st.session_state and st.session_state.download_clicked and not st.session_state.generate_clicked:
-        st.session_state.download_clicked = False
-    elif generate_button or ('generate_clicked' in st.session_state and st.session_state.generate_clicked and not st.session_state.download_clicked):
-        st.session_state.generate_clicked = False
+    
+    # Performance Analysis Tab Content
+    with tab6:
+        st.markdown("<h2 class='section-header'>Performance Analysis</h2>", unsafe_allow_html=True)
+        st.markdown("This tab shows timing data for layout generation and scoring processes to help identify performance bottlenecks.")
         
-        # Switch to the Visualization tab
-        st.query_params = 'visualization'
+        # Load timing data
+        timing_data = load_timing_data()
+        
+        if timing_data.empty:
+            st.warning("No timing data available yet. Generate some layouts to collect performance metrics.")
+        else:
+            # Create two columns for the overview
+            overview_col1, overview_col2 = st.columns(2)
+            
+            # Summary stats
+            stats = get_summary_stats(timing_data)
+            
+            with overview_col1:
+                st.markdown("### Summary Statistics")
+                
+                # Display metrics for different operations
+                if 'operations' in stats and stats['operations']:
+                    for op_stats in stats['operations']:
+                        op_name = op_stats['operation']
+                        avg_time = op_stats['avg_ms']
+                        total_time = op_stats['total_ms']
+                        count = op_stats['count']
+                        
+                        st.metric(
+                            label=f"{op_name.replace('_', ' ').title()}", 
+                            value=f"{avg_time:.1f} ms avg",
+                            delta=f"{count} runs"
+                        )
+                
+                # Display total timing information
+                if 'total_time_ms' in stats:
+                    total_sec = stats['total_time_ms'] / 1000
+                    st.metric(
+                        label="Total Processing Time", 
+                        value=f"{total_sec:.1f} seconds",
+                        delta=f"{stats.get('total_operations', 0)} operations"
+                    )
+            
+            with overview_col2:
+                st.markdown("### Performance Recommendations")
+                recommendations = get_performance_recommendations(timing_data)
+                
+                for i, rec in enumerate(recommendations[:5]):  # Limit to top 5 recommendations
+                    st.markdown(f"**{i+1}.** {rec}")
+            
+            # Filters for the visualization
+            st.markdown("### Timing Visualizations")
+            filter_col1, filter_col2, filter_col3 = st.columns(3)
+            
+            with filter_col1:
+                operations = sorted(timing_data['operation'].unique())
+                selected_operation = st.selectbox(
+                    "Filter by Operation",
+                    ["All Operations"] + list(operations),
+                    index=0
+                )
+            
+            with filter_col2:
+                time_options = ["All Time", "Last 24 Hours", "Last Week"]
+                selected_time = st.selectbox("Time Range", time_options, index=0)
+            
+            with filter_col3:
+                visualization_type = st.selectbox(
+                    "Visualization Type",
+                    ["Overview", "Time Series", "By Room Size", "By Object Count"],
+                    index=0
+                )
+            
+            # Apply filters
+            filtered_data = timing_data.copy()
+            
+            if selected_operation != "All Operations":
+                filtered_data = filtered_data[filtered_data['operation'] == selected_operation]
+            
+            if selected_time == "Last 24 Hours":
+                cutoff = datetime.datetime.now() - datetime.timedelta(days=1)
+                filtered_data = filtered_data[filtered_data['timestamp'] > cutoff]
+            elif selected_time == "Last Week":
+                cutoff = datetime.datetime.now() - datetime.timedelta(days=7)
+                filtered_data = filtered_data[filtered_data['timestamp'] > cutoff]
+            
+            # Show data table with expand option
+            with st.expander("View Raw Timing Data"):
+                st.dataframe(
+                    filtered_data[['timestamp', 'operation', 'duration_ms', 'room_width', 'room_depth', 'num_objects']],
+                    use_container_width=True
+                )
+            
+            # Create visualization based on selection
+            if not filtered_data.empty:
+                st.markdown("### Performance Visualization")
+                
+                if visualization_type == "Overview":
+                    fig = plot_timing_distribution(filtered_data)
+                    st.pyplot(fig)
+                
+                elif visualization_type == "Time Series":
+                    # Create a time series plot
+                    fig, ax = plt.subplots(figsize=(12, 6))
+                    
+                    for op in filtered_data['operation'].unique():
+                        op_data = filtered_data[filtered_data['operation'] == op]
+                        ax.plot(op_data['timestamp'], op_data['duration_ms'], 'o-', label=op, alpha=0.7)
+                    
+                    ax.set_title("Operation Duration Over Time")
+                    ax.set_ylabel("Duration (ms)")
+                    ax.set_xlabel("Timestamp")
+                    ax.legend()
+                    ax.grid(True, alpha=0.3)
+                    plt.xticks(rotation=45)
+                    plt.tight_layout()
+                    
+                    st.pyplot(fig)
+                
+                elif visualization_type == "By Room Size":
+                    # Create a scatter plot of duration vs room size
+                    fig, ax = plt.subplots(figsize=(12, 6))
+                    
+                    # Calculate room area
+                    filtered_data['room_area'] = filtered_data['room_width'] * filtered_data['room_depth']
+                    valid_data = filtered_data[filtered_data['room_area'] > 0]
+                    
+                    if not valid_data.empty:
+                        for op in valid_data['operation'].unique():
+                            op_data = valid_data[valid_data['operation'] == op]
+                            ax.scatter(op_data['room_area'], op_data['duration_ms'], label=op, alpha=0.7)
+                        
+                        ax.set_title("Operation Duration vs Room Area")
+                        ax.set_ylabel("Duration (ms)")
+                        ax.set_xlabel("Room Area (cm²)")
+                        ax.legend()
+                        ax.grid(True, alpha=0.3)
+                        
+                        st.pyplot(fig)
+                    else:
+                        st.info("No room size data available in the filtered dataset")
+                
+                elif visualization_type == "By Object Count":
+                    # Create a scatter plot of duration vs object count
+                    fig, ax = plt.subplots(figsize=(12, 6))
+                    
+                    valid_data = filtered_data[filtered_data['num_objects'] > 0]
+                    
+                    if not valid_data.empty:
+                        for op in valid_data['operation'].unique():
+                            op_data = valid_data[valid_data['operation'] == op]
+                            ax.scatter(op_data['num_objects'], op_data['duration_ms'], label=op, alpha=0.7)
+                        
+                        ax.set_title("Operation Duration vs Number of Objects")
+                        ax.set_ylabel("Duration (ms)")
+                        ax.set_xlabel("Number of Objects")
+                        ax.legend()
+                        ax.grid(True, alpha=0.3)
+                        
+                        st.pyplot(fig)
+                    else:
+                        st.info("No object count data available in the filtered dataset")
+            else:
+                st.info("No data available with the selected filters.")
+    
+if 'review_submitted' in st.session_state and st.session_state.review_submitted:
+    # If we just submitted a review, don't regenerate
+    st.session_state.review_submitted = False
+elif 'download_clicked' in st.session_state and st.session_state.download_clicked and not st.session_state.generate_clicked:
+    st.session_state.download_clicked = False
+elif generate_button or ('generate_clicked' in st.session_state and st.session_state.generate_clicked and not st.session_state.download_clicked):
+    st.session_state.generate_clicked = False
+    
+    # Switch to the Visualization tab
+    st.query_params = 'visualization'
 
-        # Calculate total space required for all objects (including shadows)
-        room_area = room_width * room_depth
-        required_area = get_required_area(selected_object, room_width, room_depth,OBJECT_TYPES)
-        
-        # If room is too small for all objects, return None to indicate error
-        if required_area > room_area * 0.9:  # Leave at least 10% for maneuvering
-            print(f"ERROR: Room too small for all requested objects. Need {required_area:.2f} cm² but only have {room_area} cm²")
-            st.error(f"ERROR: Room too small for all requested objects. Need {required_area:.2f} cm² but only have {room_area} cm²")
-
-        
+    # Calculate total space required for all objects (including shadows)
+    room_area = room_width * room_depth
+    required_area = get_required_area(selected_object, room_width, room_depth,OBJECT_TYPES)
+    
+    # If room is too small for all objects, return None to indicate error
+    if required_area > room_area * 0.9:  # Leave at least 10% for maneuvering
+        print(f"ERROR: Room too small for all requested objects. Need {required_area:.2f} cm² but only have {room_area} cm²")
+        st.error(f"ERROR: Room too small for all requested objects. Need {required_area:.2f} cm² but only have {room_area} cm²")
+    else:
         # Show a progress bar during generation
         with st.spinner("Generating your 3D floorplan..."):
             st.session_state.generated = True
@@ -742,24 +915,7 @@ else:
             st.session_state.overall = None
             st.session_state.is_everything = None
             
-            # Adjust door position based on selected type
-            if selected_door_type == "top":
-                y = x
-                x = 0
-                if y+door_width > room_depth:
-                    y = room_depth - door_width
-            elif selected_door_type == "bottom":
-                y = x
-                x = room_width
-                if y+door_width > room_depth:
-                    y = room_depth - door_width
-            elif selected_door_type == "right":
-                y = room_depth 
-                if x+door_width > room_width:
-                    x = room_width - door_width
-            elif selected_door_type == "left":
-                if x+door_width > room_width:
-                    x = room_width - door_width
+
                     
             # Map selected objects to internal names
             selected_objects = [objects_map[obj] for obj in selected_object]
@@ -767,7 +923,7 @@ else:
             
             # If no doors/windows were added using the + button, add a default door
             if not st.session_state.windows_doors_list:
-                default_door = WindowsDoors("door1", selected_door_type, (x, y), door_width, 5, door_height, selected_door_hinge, selected_door_way)
+                default_door = WindowsDoors("door1", "top", (0, 50), 75, 5, 220, "right", "inward")
                 st.session_state.windows_doors_list.append(default_door)
                 
             # Use all doors/windows from the list
@@ -801,15 +957,31 @@ else:
                 progress_text.text(f"Generating layout {i+1}/{num_layouts}...")
                 progress_bar.progress((i / num_layouts) *0.6 )  # Use 60% of progress bar for generation
                 # generate layout using beam search, give the beam_width best layouts
-                layout_positions = BeamSearch(room, selected_objects, beam_width=10).generate(selected_objects, windows_doors)
- 
+                from utils.timing_logger import log_time
+                start_time = time.time()
+                layout_positions = BeamSearch(room, selected_objects, beam_width=5).generate(selected_objects, windows_doors)
+                end_time = time.time()
+                duration_ms = (end_time - start_time) * 1000
+                log_time(
+                    operation="full_layout_generation",
+                    duration_ms=duration_ms,
+                    layout_id=f"layout_{i+1}",
+                    room_size=(room_width, room_depth),
+                    num_objects=len(selected_objects),
+                    additional_info={"beam_width": 5, "layout_number": i+1, "total_layouts": num_layouts}
+                )
+    
                 # Generate a layout
                 #layout_positions = fit_objects_in_room(bathroom_size, selected_objects, windows_doors, OBJECT_TYPES, attempt=10000)
                 if layout_positions is None:
                     st.error("Room too small for all objects.")
                     break
-
+                optimized_layout_positions = []
+                # optimize layouts by increase object sizes
                 for i in layout_positions:
+                    optimized_layout_positions.append(optimize_object_sizes(i))
+
+                for i in optimized_layout_positions:
                     all_layouts.append(i)
                 # gc collect beamsearch
                 #gc.collect()
@@ -886,208 +1058,24 @@ else:
                 
                 st.session_state.layout_metrics = layout_metrics
                 
-                # # Use ML model to predict the best layout if available
-                # if st.session_state.ml_model.model is not None:
-                #     try:
-                #         # The ML model expects all_scores in the format [(layout, score, detailed_scores), ...]
-                #         ml_best_idx = st.session_state.ml_model.predict_best_layout(all_layouts, all_scores, layout_metrics)
-                #         # Store the ML recommendation
-                #         st.session_state.ml_recommended_layout = ml_best_idx
-                #     except Exception as e:
-                #         st.warning(f"ML model prediction failed: {e}")
-                #         st.session_state.ml_recommended_layout = None
+                # Use ML model to predict the best layout if available
+                if st.session_state.ml_model.model is not None:
+                    try:
+                        # The ML model expects all_scores in the format [(layout, score, detailed_scores), ...]
+                        print("try predict")
+                        ml_best_idx = st.session_state.ml_model.predict_best_layout(all_layouts, all_scores, layout_metrics)
+                        # Store the ML recommendation
+                        st.session_state.ml_recommended_layout = ml_best_idx
+                        print("ML recommended layout:", ml_best_idx)
+                    except Exception as e:
+                        st.warning(f"ML model prediction failed: {e}")
+                        st.session_state.ml_recommended_layout = None
                 
-                # # Use RL model to predict the best layout if available
-                # if hasattr(st.session_state, 'rl_model') and st.session_state.rl_model is not None:
-                #     try:
-                #         # Extract the required data from all_scores
-                #         # all_scores format: [(layout, score, detailed_scores), ...]
-                #         layouts = [item[0] for item in all_scores]
-                #         scores = [item[1] for item in all_scores]
-                #         detailed_scores = [item[2] for item in all_scores]
-                        
-                #         rl_best_idx = st.session_state.rl_model.predict_best_layout(layouts, scores, detailed_scores, layout_metrics)
-                #         # Store the RL recommendation
-                #         st.session_state.rl_recommended_layout = rl_best_idx
-                #     except Exception as e:
-                #         st.warning(f"RL model prediction failed: {e}")
-                #         st.session_state.rl_recommended_layout = None
-                
-                # Display all layouts as 2D floorplans for selection
-                # progress_text.text("Select your preferred layout:")
-                # progress_bar.progress(0.9)  # 90% progress
-                
-                # # Create a container for the layout selection
-                # layout_selection_container = st.container()
-                
-                # with layout_selection_container:
-                #     st.markdown("<h3 class='section-header'>Select Your Preferred Layout</h3>", unsafe_allow_html=True)
-                #     # Display layouts as 2D floorplans with selection buttons
-                #     #NM EZ AZ 
-                #     selected_layout_index = display_layout_selection(
-                #         st.session_state.all_layouts,
-                #         room_width,
-                #         room_depth,
-                #         room_height,
-                #         windows_doors,
-                #         layout_metrics=layout_metrics,
-                #         ml_recommended=None,  # Add ML recommendations if available
-                #         rl_recommended=None   # Add RL recommendations if available
-                #     )
-                
-                    
-                #     # If a layout is selected, use it
-                #     if selected_layout_index is not None:
-                #         print(selected_layout_index)
-                #         positions = all_scores[selected_layout_index][0]
-                #         placed_objects = [pos[5] for pos in positions]
-                #         best_score = all_scores[selected_layout_index][1]
-                #         detailed_scores = all_scores[selected_layout_index][2]
-                #         st.session_state.selected_layout_index = selected_layout_index
-                #         st.session_state.best_layout_score = best_score
-                #         st.session_state.total_score = best_score  # Update the main score variable
-                #         st.session_state.detailed_scores = detailed_scores
-                        
-                #         st.success(f"You selected Layout {selected_layout_index + 1} with score: {best_score:.1f}/100")
-                    # else:
-                    #     # Default to the highest-scoring layout if none selected
-                    #     best_layout_index = max(range(len(all_scores)), key=lambda i: all_scores[i][1])
-                    #     positions = all_scores[best_layout_index][0]
-                    #     placed_objects = [pos[5] for pos in positions]
-                    #     best_score = all_scores[best_layout_index][1]
-                    #     detailed_scores = all_scores[best_layout_index][2]
-                        
-                    #     st.session_state.best_layout_score = best_score
-                    #     st.session_state.total_score = best_score  # Update the main score variable
-                    #     st.session_state.detailed_scores = detailed_scores
-            # else:
-            #     # Fallback if no good layouts were found
-            #     progress_text.text("Optimizing object placement...")
-            #     progress_bar.progress(0.7) 
+               
 
-                
-            #     # Traditional approach as fallback
-            #     positions = fit_objects_in_room(bathroom_size, selected_objects, windows_doors, OBJECT_TYPES, attempt=10000)
-            #     placed_objects = [pos[5] for pos in positions]
-            #     retry_count = 1
-                
-            #     while len(placed_objects) < len(selected_objects) and retry_count < 3  :
-            #         positions = fit_objects_in_room(bathroom_size, selected_objects, windows_doors, OBJECT_TYPES, attempt=10000)
-            #         placed_objects = [pos[5] for pos in positions]
-            #         retry_count += 1
-            
-            # Find available spaces
-#             progress_text.text("Analyzing available spaces...")
-#             positions = st.session_state.positions
-            
-#             available_spaces_dict = identify_available_space(positions, (room_width, room_depth), grid_size=1, windows_doors=windows_doors)
-            
-#             # Mark accessible and inaccessible spaces
-#             progress_text.text("Evaluating accessibility...")
-#             accessible_spaces, inaccessible_spaces = mark_inaccessible_spaces(
-#                 available_spaces_dict['with_shadow'], 
-#                 positions, 
-#                 (room_width, room_depth), 
-#                 windows_doors, 
-#                 grid_size=1,
-#                 min_path_width=30
-#             )
-            
-#             # Check for non-overlapping spaces
-#             non_overlapping_spaces = []
-#             for i in range(len(available_spaces_dict['without_shadow'])):
-#                 not_overlapping_spaces = []
-#                 for j in range(len(available_spaces_dict['without_shadow'])):
-#                     if i != j:
-#                         overlap = check_overlap(available_spaces_dict['without_shadow'][i], available_spaces_dict['without_shadow'][j])
-#                         if not overlap:
-#                             not_overlapping_spaces.append(available_spaces_dict['without_shadow'][j])
-#                 if len(not_overlapping_spaces) == len(available_spaces_dict['without_shadow'])-1:
-#                     non_overlapping_spaces.append(available_spaces_dict['without_shadow'][i])
-            
-#             # Store results in session state
-#             st.session_state.positions = positions
-#             st.session_state.bathroom_size = bathroom_size
-#             st.session_state.windows_doors = windows_doors
-#             st.session_state.available_spaces_dict = available_spaces_dict
-#             st.session_state.accessible_spaces = accessible_spaces
-#             st.session_state.inaccessible_spaces = inaccessible_spaces
-#             st.session_state.non_overlapping_spaces = non_overlapping_spaces
-#             st.session_state.generated = True
-#             selected_objects = st.session_state.selected_objects
-#             bathroom = Bathroom(room_width, room_depth, room_height, positions, windows_doors)
-#             layout = Layout(bathroom, selected_objects)
-            
-#             # Calculate layout score
-#             progress_text.text("Evaluating layout quality...")
-#             scoring_model = BathroomScoringFunction()
-#             total_score, detailed_scores = scoring_model.score(layout)
-#             st.session_state.total_score = total_score
-#             st.session_state.detailed_scores = detailed_scores
-#             # Create visualizations
-#             progress_text.text("Creating visualizations...")
-#             # Unpack bathroom_size tuple to pass individual width, depth, height parameters
-#             bathroom = Bathroom(room_width, room_depth, room_height, positions, windows_doors)
-#             # Create 3D visualization
-#             visualizer3d = Visualizer3D(bathroom, room_width, room_depth, room_height)
-#             fig = visualizer3d.draw_3d_room( positions, windows_doors)
-#             st.session_state.fig = fig
-            
-# # Save 3D figure to bytes for download
-#             buf = io.BytesIO()
-#             fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
-#             buf.seek(0)
-#             st.session_state.fig_bytes = buf.getvalue()
-#             visualizer2d = Visualizer2D(bathroom)
-#             # Create 2D floorplan
-#             fig2 = visualizer2d.draw_2d_floorplan()
-#             st.session_state.fig2 = fig2
-            
-#             # Save 2D figure to bytes for download
-#             buf2 = io.BytesIO()
-#             fig2.savefig(buf2, format='png', dpi=300, bbox_inches='tight')
-#             buf2.seek(0)
-#             st.session_state.fig2_bytes = buf2.getvalue()
-            
-#             progress_text.text("Visualizing available spaces...")
-#             progress_bar.progress(0.99)  # Use 60% of progress bar for generation
-#             figvis_with_shadow = visualizer2d.visualize_available_spaces(positions,  available_spaces_dict['with_shadow'], shadow=True)
-#             st.session_state.figvis_with_shadow = figvis_with_shadow
-            
-#             # Save figure to bytes for download
-#             buf3 = io.BytesIO()
-#             figvis_with_shadow.savefig(buf3, format='png', dpi=300, bbox_inches='tight')
-#             buf3.seek(0)
-#             st.session_state.figvis_with_shadow_bytes = buf3.getvalue()
-            
-#             figvis_without_shadow = visualizer2d.visualize_available_spaces(positions,  available_spaces_dict['without_shadow'], shadow=False)
-#             st.session_state.figvis_without_shadow = figvis_without_shadow
-            
-#             #Save figure to bytes for download
-#             buf4 = io.BytesIO()
-#             figvis_without_shadow.savefig(buf4, format='png', dpi=300, bbox_inches='tight')
-#             buf4.seek(0)
-#             st.session_state.figvis_without_shadow_bytes = buf4.getvalue()
-            
-#             # Calculate space utilization metrics
-#             total_room_area = room_width * room_depth
-#             used_area = sum(obj[2] * obj[3] for obj in positions)  # width * depth for each object
-#             available_area_with_shadow = sum(space[2] * space[3] for space in available_spaces_dict['with_shadow'])
-#             available_area_without_shadow = sum(space[2] * space[3] for space in available_spaces_dict['without_shadow'])
-            
-#             st.session_state.space_metrics = {
-#                 "total_room_area": total_room_area,
-#                 "used_area": used_area,
-#                 "available_area_with_shadow": available_area_with_shadow,
-#                 "available_area_without_shadow": available_area_without_shadow
-#             }
-            
-#             # Check if room is valid
-#             isTrue = check_valid_room(positions)
-#             st.session_state.is_valid_room = isTrue
     
     # Visualization Tab Content
-    with tab2:
+with tab2:
         if not st.session_state.get('generated', False):
             st.info("Please generate a floorplan first in the Room Setup tab")
         else:
@@ -1165,78 +1153,6 @@ else:
                         ml_recommended=ml_recommended,
                         rl_recommended=rl_recommended
                     )
-                    
-            # # Handle layout selection
-            # if selected_layout_index is not None:
-            #             print(selected_layout_index)
-            #             layout = st.session_state.all_layouts[selected_layout_index]
-            #             print(type(layout))
-            #             st.session_state.selected_layout_index = selected_layout_index
-            #             st.session_state.positions = layout.bathroom
-            #             st.session_state.placed_objects = layout.bathroom.objects
-            #             st.session_state.best_layout_score = layout.score
-            #             st.session_state.total_score = layout.score
-            #             st.session_state.detailed_scores = layout.score_breakdown
-            #             print(type(st.session_state.placed_objects))
-            #             # Add this selection to both models' training data
-            #             # Train ML model
-            #             if hasattr(st.session_state, 'ml_model'):
-            #                 try:
-            #                     st.session_state.ml_model.add_training_example(
-            #                         selected_layout_index, 
-            #                         st.session_state.all_layouts, 
-            #                         st.session_state.layout_scores, 
-            #                         st.session_state.layout_metrics
-            #                     )
-            #                     st.session_state.ml_update_needed = True
-            #                 except Exception as e:
-            #                     st.warning(f"ML model training failed: {e}")
-                        
-            #             # Train RL model
-            #             if hasattr(st.session_state, 'rl_model'):
-            #                 try:
-            #                     # Extract detailed scores from all_scores
-            #                     # all_scores format: [(layout, score, detailed_scores), ...]
-            #                     detailed_scores_list = [item[2] for item in st.session_state.layout_scores]
-                                
-            #                     st.session_state.rl_model.add_training_example(
-            #                         selected_layout_index, 
-            #                         st.session_state.all_layouts, 
-            #                         [item[1] for item in st.session_state.layout_scores],  # Extract scores
-            #                         detailed_scores_list,
-            #                         st.session_state.layout_metrics
-            #                     )
-            #                     st.session_state.rl_update_needed = True
-            #                 except Exception as e:
-            #                     st.warning(f"RL model training failed: {e}")
-            #                     st.session_state.rl_update_needed = False
-                        
-            #             # Regenerate visualizations for the selected layout
-            #             bathroom = Bathroom(room_width, room_depth, room_height, layout, windows_doors)
-                        
-            #             # Create 3D visualization
-            #             visualizer3d = Visualizer3D(room_width, room_depth, room_height)
-            #             fig_3d = visualizer3d.draw_3d_room(st.session_state.placed_objects, windows_doors)
-            #             st.session_state.fig = fig_3d
-                        
-            #             # Save 3D figure to bytes for download
-            #             buf = io.BytesIO()
-            #             fig_3d.savefig(buf, format='png', dpi=300, bbox_inches='tight')
-            #             buf.seek(0)
-            #             st.session_state.fig_bytes = buf.getvalue()
-                        
-            #             # Create 2D floorplan
-            #             visualizer2d = Visualizer2D(bathroom)
-            #             fig_2d = visualizer2d.draw_2d_floorplan()
-            #             st.session_state.fig2 = fig_2d
-                        
-            #             # Save 2D figure to bytes for download
-            #             buf2 = io.BytesIO()
-            #             fig_2d.savefig(buf2, format='png', dpi=300, bbox_inches='tight')
-            #             buf2.seek(0)
-            #             st.session_state.fig2_bytes = buf2.getvalue()
-                        
-                        #st.rerun()
             
             # Show the selected layout if one has been chosen
             if st.session_state.selected_layout_index is not None:
@@ -1288,19 +1204,7 @@ else:
                     st.session_state.download_clicked = True      
                     st.session_state.generate_clicked = False
     
-                
-                # # Section 2: Available Spaces Analysis side by side
-                # st.markdown("<h4 class='section-header'>Available Space Analysis</h4>", unsafe_allow_html=True)
-                # col0, col1 ,col2,col3 = st.columns([1,2,2,1])
-                
-                # with col1:
-                #     st.markdown(f"<p><b>With Shadow</b> ({len(st.session_state.available_spaces_dict['with_shadow'])} spaces)</p>", unsafe_allow_html=True)
-                #     st.pyplot(st.session_state.figvis_with_shadow)
-                
-                # with col2:
-                #     st.markdown(f"<p><b>Without Shadow</b> ({len(st.session_state.available_spaces_dict['without_shadow'])} spaces)</p>", unsafe_allow_html=True)
-                #     st.pyplot(st.session_state.figvis_without_shadow)
-                
+
                 # Object placement summary
                 st.markdown("<h3 class='section-header'>Fixture Placement Summary</h3>", unsafe_allow_html=True)
                 
@@ -1324,7 +1228,7 @@ else:
                 st.info("👆 Please select a layout from above to view detailed visualizations and analysis.")
     
     # Analysis Tab Content
-    with tab3:
+with tab3:
         if not st.session_state.get('generated', False):
             st.info("Please generate a floorplan first in the Room Setup tab")
         else:
@@ -1378,60 +1282,10 @@ else:
             # Additional analysis section
             st.markdown("<h2 class='section-header'>Layout Analysis & Optimization</h2>", unsafe_allow_html=True)
             
-            # # Space utilization metrics
-            # st.markdown("<h3 class='section-header'>Space Utilization</h3>", unsafe_allow_html=True)
-            
-            # metrics = st.session_state.space_metrics
-            # total_room_area = metrics["total_room_area"]
-            # used_area = metrics["used_area"]
-            # available_area_with_shadow = metrics["available_area_with_shadow"]
-            # available_area_without_shadow = metrics["available_area_without_shadow"]
-            
-            
-            # # Create a more visual metrics display with 4 columns
-            # metric_cols = st.columns([1,2,2,1])
-            
-            # # Custom metric cards with better alignment
-            # with metric_cols[0]:
-            #     st.markdown("""
-            #     <div class='metric-card'>
-            #         <div class='metric-card-label'>Total Room Area</div>
-            #         <div class='metric-card-value'>{} cm²</div>
-            #     </div>
-            #     """.format(total_room_area), unsafe_allow_html=True)
-            
-            # with metric_cols[1]:
-            #     percentage = int(used_area/total_room_area*100)
-            #     st.markdown("""
-            #     <div class='metric-card'>
-            #         <div class='metric-card-label'>Used Area</div>
-            #         <div class='metric-card-value'>{} cm²</div>
-            #         <div class='metric-card-delta'>{}%</div>
-            #     </div>
-            #     """.format(used_area, percentage), unsafe_allow_html=True)
-            
-            # with metric_cols[2]:
-            #     percentage = int(available_area_with_shadow/total_room_area*100)
-            #     st.markdown("""
-            #     <div class='metric-card'>
-            #         <div class='metric-card-label'>Available (with shadow)</div>
-            #         <div class='metric-card-value'>{} cm²</div>
-            #         <div class='metric-card-delta'>{}%</div>
-            #     </div>
-            #     """.format(available_area_with_shadow, percentage), unsafe_allow_html=True)
-            
-            # with metric_cols[3]:
-            #     percentage = int(available_area_without_shadow/total_room_area*100)
-            #     st.markdown("""
-            #     <div class='metric-card'>
-            #         <div class='metric-card-label'>Available (no shadow)</div>
-            #         <div class='metric-card-value'>{} cm²</div>
-            #         <div class='metric-card-delta'>{}%</div>
-            #     </div>
-            #     """.format(available_area_without_shadow, percentage), unsafe_allow_html=True)
+ 
             
             # Layout Comparison (if multiple layouts were generated)
-            if 'layout_metrics' in st.session_state:
+            if 'layout_metrics' in st.session_state and st.session_state.layout_metrics:
                 st.markdown("<h3 class='section-header'>Layout Comparison</h3>", unsafe_allow_html=True)
                 st.info("🔄 Multiple layouts were generated and compared to find the optimal arrangement")
                 
@@ -1647,173 +1501,32 @@ else:
                                 else:  # Average or below
                                     emoji = "⚪"
                                 st.markdown(f"{emoji} **{category_name}**: {score:.2f}/10")
-            
-            # # Accessibility analysis
-            # st.markdown("<h3 class='section-header'>Accessibility Analysis</h3>", unsafe_allow_html=True)
-            
-            # # Display warnings about inaccessible spaces
-            # if st.session_state.inaccessible_spaces:
-            #     st.warning(f"⚠️ There are {len(st.session_state.inaccessible_spaces)} inaccessible spaces in the room layout.")
-            #     with st.expander("View inaccessible spaces"):
-            #         st.write(st.session_state.inaccessible_spaces)
-            # else:
-            #     st.success("✅ All spaces in the room are accessible")
-            
-            # # Display warnings about non-overlapping spaces
-            # if st.session_state.non_overlapping_spaces:
-            #     st.warning(f"⚠️ There are {len(st.session_state.non_overlapping_spaces)} non-overlapping spaces that may be isolated.")
-            #     with st.expander("View non-overlapping spaces"):
-            #         st.write(st.session_state.non_overlapping_spaces)
-            
             # Layout quality score
-            if st.session_state.selected_layout_index is not None:
+            if st.session_state.selected_layout_index is not None and 'layout_metrics' in st.session_state:
                 st.markdown("<h3 class='section-header'>Layout Quality Score</h3>", unsafe_allow_html=True)
             
-            
-                total_score = st.session_state.layout_metrics[st.session_state.selected_layout_index]['score']
-                # only 3 decimal places
-                total_score = round(total_score, 3)
-                st.markdown(f"<div style='text-align: left; font-size: 3rem; font-weight: bold; color: {'green' if total_score > 70 else 'orange' if total_score > 40 else 'red'};'>{total_score}/100</div>", unsafe_allow_html=True)
-                # Display detailed scores
-                detailed_scores = st.session_state.layout_metrics[st.session_state.selected_layout_index]['detailed_scores']
-                for category, score in detailed_scores.items():
-                    st.markdown(f"**{category}**: {score}/10")
+                # Safety check for layout_metrics
+                if st.session_state.layout_metrics and st.session_state.selected_layout_index < len(st.session_state.layout_metrics):
+                    total_score = st.session_state.layout_metrics[st.session_state.selected_layout_index]['score']
+                    # only 3 decimal places
+                    total_score = round(total_score, 3)
+                    st.markdown(f"<div style='text-align: left; font-size: 3rem; font-weight: bold; color: {'green' if total_score > 70 else 'orange' if total_score > 40 else 'red'};'>{total_score}/100</div>", unsafe_allow_html=True)
+                    # Display detailed scores
+                    detailed_scores = st.session_state.layout_metrics[st.session_state.selected_layout_index]['detailed_scores']
+                    for category, score in detailed_scores.items():
+                        st.markdown(f"**{category}**: {score}/10")
+                else:
+                    st.info("Please select a layout from the Room Setup tab to view quality scores.")
 
 
                 # Add pathway accessibility analysis
                 path_width = 60
-                #accessibility_score = st.session_state.detailed_scores["pathway_accessibility"]
-                # Analyze pathway accessibility
-                # pathway_fig = visualizer2d.visualize_pathway_accessibility(
-                #     st.session_state.positions, 
 
-                # )
-                
-                # Display the accessibility score
-                #st.markdown(f"<p>Accessibility Score: <strong>{accessibility_score:.1f}/10</strong></p>", unsafe_allow_html=True)
-                
-                # Explanation of the score
-                #if accessibility_score >= 8:
-                #    st.success("Great accessibility! Most fixtures can be reached with comfortable pathways.")
-                #elif accessibility_score >= 5:
-                #    st.info("Acceptable accessibility. Some fixtures may be difficult to access.")
-                #else:
-                #    st.warning("Poor accessibility. Consider rearranging fixtures to improve pathways.")
                 col1, col2, col3 = st.columns([1, 1, 1])   
-            # Display the pathway visualization
-            #col2.pyplot(pathway_fig)
-            
-            # Suggestions for improvement
-            #st.markdown("<h3 class='section-header'>Suggested Improvements</h3>", unsafe_allow_html=True)
-            
-            # Button to suggest additional fixtures
-            #suggest_col1, suggest_col2, suggest_col3 = st.columns([1, 2, 1])
-            
-            # with suggest_col2:
-            #     suggest_button = st.button(
-            #         "Suggest Additional Fixtures", 
-            #         use_container_width=True,
-            #         type="secondary",
-            #         key="suggest_fixtures_button"
-            #     )
-            
-            # # Handle fixture suggestions
-            # if suggest_button:
-            #     with st.spinner("Analyzing available spaces and suggesting fixtures..."):
-            #         suggestions = suggest_additional_fixtures(
-            #             st.session_state.positions, 
-            #             st.session_state.bathroom_size, 
-            #             OBJECT_TYPES, 
-            #             st.session_state.available_spaces_dict['with_shadow'], 
-            #             st.session_state.available_spaces_dict['without_shadow']
-            #         )
-            #         st.session_state.suggestions = suggestions
-                    
-            #         if suggestions["message"] != "No suitable fixtures can be added to the available spaces":
-            #             fixture_options = list(suggestions["suggestions"].keys())
-            #             st.session_state.fixture_options = fixture_options
-            #             st.session_state.selected_fixtures = fixture_options[:min(2, len(fixture_options))]
-                        
-            #             st.success(f"Found {len(fixture_options)} potential fixtures that could be added!")
-            #         else:
-            #             st.info("No additional fixtures can be added to the available spaces")
-            
-            # # Display fixture suggestions if available
-            # if "suggestions" in st.session_state:
-            #     if st.session_state.suggestions["message"] != "No suitable fixtures can be added to the available spaces":
-            #         fixture_options = st.session_state.fixture_options
-                    
-            #         st.markdown("<h4>Select fixtures to add:</h4>", unsafe_allow_html=True)
-            #         selected_fixtures = st.multiselect(
-            #             "Additional fixtures", 
-            #             options=fixture_options, 
-            #             default=st.session_state.selected_fixtures,
-            #             key="fixture_multiselect"
-            #         )
-            #         st.session_state.selected_fixtures = selected_fixtures
-                    
-            #         # Button to add selected fixtures
-            #         add_col1, add_col2, add_col3 = st.columns([1, 2, 1])
-                    
-            #         with add_col2:
-            #             add_button = st.button(
-            #                 "Add Selected Fixtures", 
-            #                 use_container_width=True,
-            #                 type="primary",
-            #                 key="add_fixtures_button",
-            #                 disabled=not selected_fixtures
-            #             )
-                    
-            #         # Handle adding fixtures
-            #         if add_button and selected_fixtures:
-            #             with st.spinner("Adding fixtures to layout..."):
-            #                 updated_positions, added_objects = add_objects_to_available_spaces(
-            #                     st.session_state.positions, 
-            #                     st.session_state.bathroom_size, 
-            #                     OBJECT_TYPES,
-            #                     priority_objects=selected_fixtures,
-            #                     available_spaces=st.session_state.available_spaces_dict['with_shadow']
-            #                 )
-                            
-            #                 if added_objects:
-            #                     st.success(f"✅ Successfully added {len(added_objects)} new fixtures to the layout!")
-                                
-            #                     # Update positions and recalculate everything
-            #                     positions = updated_positions + st.session_state.positions
-            #                     st.session_state.positions = positions
-                                
-            #                     # Update available spaces
-            #                     available_spaces_dict = identify_available_space(
-            #                         positions, 
-            #                         st.session_state.bathroom_size, 
-            #                         windows_doors=st.session_state.windows_doors
-            #                     )
-            #                     st.session_state.available_spaces_dict = available_spaces_dict
-                                
-            #                     # Update visualizations
-            #                     fignew = visualize_room_with_shadows_3d(st.session_state.bathroom_size, positions, st.session_state.windows_doors)
-            #                     st.session_state.fig = fignew
-                                
-            #                     fignew2 = draw_2d_floorplan(st.session_state.bathroom_size, positions, st.session_state.windows_doors, selected_door_way)
-            #                     st.session_state.fig2 = fignew2
-                                
-            #                     fignewvis = visualize_room_with_available_spaces(positions, st.session_state.bathroom_size, available_spaces_dict['with_shadow'], shadow=True)
-            #                     st.session_state.figvis_with_shadow = fignewvis
-                                
-            #                     fignewvis2 = visualize_room_with_available_spaces(positions, st.session_state.bathroom_size, available_spaces_dict['without_shadow'], shadow=False)
-            #                     st.session_state.figvis_without_shadow = fignewvis2
-                                
-            #                     # Show updated visualizations
-            #                     st.subheader("Updated 3D Layout")
-            #                     st.pyplot(fignew)
-                                
-            #                     st.subheader("Updated 2D Floorplan")
-            #                     st.pyplot(fignew2)
-            #                 else:
-            #                     st.warning("Could not add any of the selected fixtures due to space constraints.")
+
     
     # Review Tab Content
-    with tab4:
+with tab4:
         if not st.session_state.get('generated', False):
             st.info("Please generate a floorplan first in the Room Setup tab")
         elif st.session_state.selected_layout_index is None:
@@ -1980,27 +1693,10 @@ else:
                     }
                     with open("room_data.json", "w") as f:
                         json.dump(room_data, f)
-                
-                
-
-            
-
-
-
-            
-
-
-
-   
-
-
-
-
-
 
 
     # Saved Reviews Tab Content
-    with tab5:
+with tab5:
         st.markdown("<h2 class='section-header'>Saved Bathroom Reviews</h2>", unsafe_allow_html=True)
         
         # Add a reload button at the top
